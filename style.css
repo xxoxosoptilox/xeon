@@ -64,15 +64,19 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 .black-screen[hidden] { display: none; }
 .home-screen { position: fixed; z-index: 5; inset: 0; overflow: auto; color: #f4f5f6; background: #202224; animation: home-in .7s ease both; }
 .home-screen[hidden] { display: none; }
-.home-topbar { display: flex; align-items: center; gap: 28px; width: 100%; min-height: 46px; padding: 0 20px 0 16px; overflow: hidden; background: #101113; }
+.home-topbar { position: relative; z-index: 10; display: flex; align-items: center; gap: 28px; width: 100%; min-height: 46px; padding: 0 20px 0 16px; overflow: visible; background: #101113; }
 .home-logo { width: 102px; height: auto; }
 .home-nav { display: flex; gap: clamp(18px, 5vw, 70px); }
 .home-nav button, .profile-chip button, .section-heading button { border: 0; color: inherit; background: transparent; font-weight: 700; }
 .search-box { display: flex; align-items: center; gap: 7px; width: min(400px, 26vw); margin-left: auto; padding: 3px 9px; border-radius: 7px; background: #090a0b; color: #aab0b3; }
 .search-box input { min-height: 25px; border: 0; padding: 0; background: transparent; box-shadow: none; font-size: 13px; }
-.profile-chip { display: flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; font-size: 12px; }.avatar-dot, .avatar-large, .welcome-avatar { display: block; object-fit: cover; border-radius: 50%; }.avatar-dot { width: 24px; height: 24px; }.robux-count { color: #d8dbdd; }
+.profile-chip { position: relative; display: flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; font-size: 12px; }.avatar-dot, .avatar-large, .welcome-avatar { display: block; object-fit: cover; border-radius: 50%; }.avatar-dot { width: 24px; height: 24px; }.robux-count { color: #d8dbdd; }
 .settings-button { display: grid; width: 26px; height: 26px; place-items: center; border: 0; padding: 0; background: transparent; }
 .settings-button img { display: block; width: 22px; height: 22px; object-fit: cover; }
+.account-menu { position: absolute; z-index: 20; top: 34px; right: 0; min-width: 150px; padding: 7px; border: 1px solid #4a4d50; border-radius: 6px; background: #242628; box-shadow: 0 10px 25px #0009; }
+.account-menu[hidden] { display: none; }
+.account-menu button { display: block; width: 100%; border: 0; border-radius: 4px; padding: 9px 10px; color: #f1f2f3; background: transparent; text-align: left; }
+.account-menu button:hover { background: #383b40; }
 .robux-count { display: inline-flex; align-items: center; gap: 1px; }
 .robux-icon { width: 32px; height: 32px; object-fit: contain; }
 .home-body { display: flex; min-height: calc(100vh - 46px); }.side-nav { width: 146px; flex: 0 0 146px; padding: 12px 8px; background: #191a1c; }.side-profile { display: flex; align-items: center; gap: 9px; margin: 0 4px 12px; padding-bottom: 10px; border-bottom: 1px solid #606265; font-size: 12px; }.side-profile .avatar-large { width: 24px; height: 24px; font-size: 12px; }.side-nav > button { display: flex; align-items: center; gap: 12px; width: 100%; border: 0; border-radius: 3px; padding: 8px 5px; color: #e2e4e5; background: transparent; font-size: 13px; font-weight: 700; text-align: left; }.side-nav > button:hover, .side-nav > button.active { background: #2e3038; }.side-nav b { margin-left: auto; border-radius: 9px; padding: 1px 5px; background: #e8e9ea; color: #333; font-size: 10px; }.premium-button { justify-content: center; margin-top: 12px; border-radius: 6px !important; color: #202124 !important; background: #fff !important; }

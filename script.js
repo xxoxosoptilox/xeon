@@ -10,8 +10,12 @@ const blackScreen = document.querySelector("#black-screen");
 const homeScreen = document.querySelector("#home-screen");
 const userNameTargets = document.querySelectorAll("[data-user-name]");
 const userInitialTargets = document.querySelectorAll("[data-user-initial]");
+const robuxBalanceTargets = document.querySelectorAll("[data-robux-balance]");
 const apiBase = "";
 const sidebarToggle = document.querySelector("#sidebar-toggle");
+const settingsButton = document.querySelector("#settings-button");
+const accountMenu = document.querySelector("#account-menu");
+const logoutButton = document.querySelector("#logout-button");
 
 function showMessage(text) {
   message.textContent = text;
@@ -32,6 +36,7 @@ function showHomeFor(username) {
   localStorage.setItem("xedraUsername", safeUsername);
   userNameTargets.forEach((target) => { target.textContent = safeUsername; });
   userInitialTargets.forEach((target) => { target.textContent = safeUsername.charAt(0).toUpperCase(); });
+  robuxBalanceTargets.forEach((target) => { target.textContent = safeUsername.toLowerCase() === "roblox" ? "∞" : "0"; });
   openHomeScreen();
 }
 
@@ -42,6 +47,7 @@ function restoreHomeScreen() {
   }
   userNameTargets.forEach((target) => { target.textContent = savedUsername; });
   userInitialTargets.forEach((target) => { target.textContent = savedUsername.charAt(0).toUpperCase(); });
+  robuxBalanceTargets.forEach((target) => { target.textContent = savedUsername.toLowerCase() === "roblox" ? "∞" : "0"; });
   signupCard.hidden = true;
   loginCard.hidden = true;
   blackScreen.hidden = true;
@@ -171,5 +177,24 @@ sidebarToggle.addEventListener("click", () => {
   const collapsed = homeScreen.classList.toggle("sidebar-collapsed");
   sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
   sidebarToggle.setAttribute("aria-label", collapsed ? "Show sidebar" : "Hide sidebar");
+});
+
+settingsButton.addEventListener("click", () => {
+  const isOpen = !accountMenu.hidden;
+  accountMenu.hidden = isOpen;
+  settingsButton.setAttribute("aria-expanded", String(!isOpen));
+});
+
+logoutButton.addEventListener("click", () => {
+  localStorage.removeItem("xedraUsername");
+  sessionStorage.clear();
+  accountMenu.hidden = true;
+  homeScreen.hidden = true;
+  blackScreen.hidden = true;
+  loginCard.hidden = false;
+  signupCard.hidden = true;
+  setView("login");
+  document.querySelector("#login-username").value = "";
+  document.querySelector("#login-password").value = "";
 });
 
