@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Roblox Revival sign-up preview" />
+    <title>Sign Up | Revival</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="topbar">
+        <span class="wordmark-space" aria-hidden="true"></span>
+        <button class="login-button" type="button" data-action="login">Log In</button>
+      </header>
+      <img class="floating-logo" src="xedra.png" alt="XEDRA" />
+
+      <section class="signup-card" aria-labelledby="signup-title">
+        <h1 id="signup-title">SIGN UP AND START HAVING FUN!</h1>
+        <form id="signup-form" novalidate>
+          <label for="month">Birthday</label>
+          <div class="birthday-fields">
+            <select id="month" name="month" aria-label="Birth month"><option value="">Month</option><option>January</option><option>February</option><option>March</option><option>April</option><option>May</option><option>June</option><option>July</option><option>August</option><option>September</option><option>October</option><option>November</option><option>December</option></select>
+            <select id="day" name="day" aria-label="Birth day"><option value="">Day</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option><option>13</option><option>14</option><option>15</option><option>16</option><option>17</option><option>18</option><option>19</option><option>20</option><option>21</option><option>22</option><option>23</option><option>24</option><option>25</option><option>26</option><option>27</option><option>28</option><option>29</option><option>30</option><option>31</option></select>
+            <select id="year" name="year" aria-label="Birth year"><option value="">Year</option><option>2012</option><option>2011</option><option>2010</option><option>2009</option><option>2008</option><option>2007</option><option>2006</option><option>2005</option><option>2004</option><option>2003</option><option>2002</option><option>2001</option><option>2000</option></select>
+          </div>
+
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" minlength="3" pattern="[A-Za-z0-9_]+" autocomplete="off" placeholder="3+ letters, numbers, or _" />
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="off" placeholder="At least 8 characters" />
+
+          <label>Gender <span>(optional)</span></label>
+          <div class="gender-fields" role="group" aria-label="Gender optional">
+            <button type="button" class="gender-button" data-gender="girl" aria-label="Girl">♙</button>
+            <button type="button" class="gender-button" data-gender="boy" aria-label="Boy">♙</button>
+          </div>
+
+          <p class="terms">By clicking Sign Up, you are agreeing to the <a href="#terms" data-action="terms">Terms of Use</a> including the arbitration clause and you are acknowledging the <a href="#privacy" data-action="privacy">Privacy Policy</a></p>
+          <button class="signup-button" type="submit">Sign Up</button>
+          <p class="form-message" id="form-message" role="status" aria-live="polite"></p>
+        </form>
+        <p class="demo-note">Local preview only. No account information is sent anywhere.</p>
+      </section>
+
+      <section class="login-card" aria-labelledby="login-title" hidden>
+        <h1 id="login-title">LOG IN TO XEDRA</h1>
+        <form id="login-form" novalidate>
+          <label for="login-username">Username, email, or phone</label>
+          <input id="login-username" name="login-username" type="text" autocomplete="off" placeholder="Username/Email/Phone" />
+          <label for="login-password">Password</label>
+          <input id="login-password" name="login-password" type="password" autocomplete="off" placeholder="Password" />
+          <button class="login-submit" type="submit">Log In</button>
+          <button class="login-link" type="button" data-action="forgot">Forgot Password or Username?</button>
+          <div class="login-divider"></div>
+          <button class="login-option" type="button" data-action="code">Email Me a One-Time Code</button>
+          <button class="login-option" type="button" data-action="device">Use Another Device</button>
+          <p class="login-signup">Don't have an account? <button class="login-link inline-link" type="button" data-action="signup">Sign Up</button></p>
+          <p class="form-message" id="login-message" role="status" aria-live="polite"></p>
+        </form>
+        <p class="demo-note">Local preview only. No account information is sent anywhere.</p>
+      </section>
+
+      <section class="home-screen" id="home-screen" hidden aria-label="XEDRA home menu">
+        <header class="home-topbar">
+          <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Hide sidebar" aria-expanded="true">☰</button>
+          <img src="xedra.png" alt="XEDRA" class="home-logo" />
+          <nav class="home-nav" aria-label="Main navigation"><button>Discover</button><button>Marketplace</button><button>Create</button><button>Robux</button></nav>
+          <label class="search-box"><span aria-hidden="true">⌕</span><input type="search" placeholder="Search" /></label>
+          <div class="profile-chip"><img class="avatar-dot" src="noFilter.png" alt="" /><strong data-user-name>User</strong><span class="robux-count"><img class="robux-icon" src="Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png" alt="" /> 0</span><button class="settings-button" aria-label="Settings"><img src="Firefly_RemoveBackground.png" alt="" /></button></div>
+        </header>
+        <div class="home-body">
+          <aside class="side-nav" aria-label="Account navigation">
+            <div class="side-profile"><img class="avatar-large" src="noFilter.png" alt="" /><strong data-user-name>User</strong></div>
+            <button class="active">⌂ <span>Home</span></button><button>♙ <span>Profile</span></button><button>▤ <span>Messages</span></button><button>♧ <span>Friends</span><b>2</b></button><button>♙ <span>Avatar</span></button><button>▣ <span>Inventory</span></button><button>◁ <span>Trade</span></button><button>♧ <span>Communities</span></button><button>▤ <span>Blog</span></button><button>☆ <span>Official Store</span></button><button>▣ <span>Buy Gift Cards</span></button>
+            <button class="premium-button">Get Premium</button>
+          </aside>
+          <div class="home-content">
+            <div class="welcome-row"><img class="welcome-avatar" src="noFilter.png" alt="" /><h2>Welcome, <span data-user-name>User</span></h2></div>
+            <section class="home-section"><div class="section-heading"><h3>Friends <span>(25)</span></h3><button>See All</button></div><div class="friends-row"><div class="friend"><img src="noFilter.png" alt="" /><span>027123d_3</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>BAKLAGAN</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>notkardin</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>Reza_Me</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>jezzeki</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>stut76</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>Baltic9</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>Baldi</span></div></div></section>
+            <section class="home-section"><h3>Continue</h3></section>
+            <section class="home-section"><h3>Recommended For You</h3></section>
+          </div>
+        </div>
+      </section>
+    </main>
+    <div class="black-screen" id="black-screen" hidden aria-hidden="true"></div>
+    <script src="script.js"></script>
+  </body>
+</html>
