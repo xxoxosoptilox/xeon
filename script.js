@@ -309,6 +309,7 @@ const searchResultsGrid = document.querySelector("#search-results-grid");
 function showDefaultHomeContent() {
   searchResultsSection.hidden = true;
   friendsPage.hidden = true;
+  catalogPage.hidden = true;
   homeDefaultContent.hidden = false;
 }
 
@@ -395,6 +396,7 @@ async function runPlayerSearch(rawQuery) {
   searchResultsGrid.textContent = "";
   homeDefaultContent.hidden = true;
   friendsPage.hidden = true;
+  catalogPage.hidden = true;
   searchResultsSection.hidden = false;
 
   try {
@@ -470,6 +472,7 @@ const friendsPanels = {
 function showFriendsPage() {
   homeDefaultContent.hidden = true;
   searchResultsSection.hidden = true;
+  catalogPage.hidden = true;
   friendsPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadFriendsPage();
@@ -676,6 +679,338 @@ async function loadFriendsPage() {
       friendsPanels.following.appendChild(friendPageCard(user, [button]));
     });
   }
+}
+
+const CATALOG_GENRES = [
+  ["building", "Building"], ["horror", "Horror"], ["town_and_city", "Town and City"],
+  ["military", "Military"], ["comedy", "Comedy"], ["medieval", "Medieval"],
+  ["adventure", "Adventure"], ["sci-fi", "Sci-Fi"], ["naval", "Naval"], ["fps", "FPS"],
+  ["rpg", "RPG"], ["sports", "Sports"], ["fighting", "Fighting"], ["western", "Western"]
+];
+const CATALOG_CATEGORY_LABELS = {
+  all: "All Categories",
+  featured: "All Featured Items",
+  featured_accessories: "Featured Accessories",
+  featured_faces: "Featured Faces",
+  featured_gear: "Featured Gear",
+  community: "Community Creations",
+  collectibles: "Collectibles",
+  clothing: "Clothing",
+  body_parts: "Body Parts",
+  gear: "Gear",
+  accessories: "Accessories"
+};
+const ROBUX_ICON = "Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png";
+
+const catalogNavButton = document.querySelector("#catalog-nav-button");
+const topMarketplaceButton = document.querySelector("#top-marketplace-button");
+const catalogPage = document.querySelector("#catalog-page");
+const catalogCategories = Array.from(document.querySelectorAll(".catalog-category"));
+const catalogGenreList = document.querySelector("#catalog-genre-list");
+const catalogCrumb = document.querySelector("#catalog-crumb");
+const catalogCount = document.querySelector("#catalog-count");
+const catalogGrid = document.querySelector("#catalog-grid");
+const catalogSearch = document.querySelector("#catalog-search");
+const catalogSort = document.querySelector("#catalog-sort");
+const catalogCreatorName = document.querySelector("#catalog-creator-name");
+const catalogMinPrice = document.querySelector("#catalog-min-price");
+const catalogMaxPrice = document.querySelector("#catalog-max-price");
+
+const catalogState = {
+  category: "all",
+  genre: "",
+  creator: "",
+  creatorType: "",
+  currency: "",
+  priceMode: "any",
+  minPrice: "",
+  maxPrice: "",
+  includeUnavailable: false,
+  q: "",
+  sort: "relevance"
+};
+
+function buildGenreRadios() {
+  const allItem = document.createElement("label");
+  allItem.className = "catalog-radio";
+  const allRadio = document.createElement("input");
+  allRadio.type = "radio";
+  allRadio.name = "catalog-genre";
+  allRadio.value = "";
+  allRadio.checked = true;
+  allItem.append(allRadio, " All Genres");
+  catalogGenreList.appendChild(allItem);
+  CATALOG_GENRES.forEach(([value, label]) => {
+    const item = document.createElement("label");
+    item.className = "catalog-radio";
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "catalog-genre";
+    radio.value = value;
+    item.append(radio, ` ${label}`);
+    catalogGenreList.appendChild(item);
+  });
+}
+buildGenreRadios();
+
+function showCatalogPage() {
+  homeDefaultContent.hidden = true;
+  searchResultsSection.hidden = true;
+  friendsPage.hidden = true;
+  catalogPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadCatalog();
+}
+
+catalogNavButton.addEventListener("click", showCatalogPage);
+topMarketplaceButton.addEventListener("click", showCatalogPage);
+
+catalogCategories.forEach((button) => {
+  button.addEventListener("click", () => {
+    catalogCategories.forEach((item) => item.classList.toggle("active", item === button));
+    catalogState.category = button.dataset.category;
+    void loadCatalog();
+  });
+});
+
+catalogGenreList.addEventListener("change", (event) => {
+  if (event.target.name === "catalog-genre") {
+    catalogState.genre = event.target.value;
+    void loadCatalog();
+  }
+});
+
+document.querySelectorAll('input[name="catalog-creator"]').forEach((radio) => {
+  radio.addEventListener("change", () => {
+    catalogState.creator = radio.value;
+    catalogCreatorName.value = "";
+    void loadCatalog();
+  });
+});
+
+document.querySelector("#catalog-creator-go").addEventListener("click", () => {
+  catalogState.creator = catalogCreatorName.value.trim();
+  document.querySelectorAll('input[name="catalog-creator"]').forEach((radio) => {
+    radio.checked = radio.value === "" && !catalogState.creator;
+  });
+  void loadCatalog();
+});
+
+document.querySelectorAll('input[name="catalog-creator-type"]').forEach((radio) => {
+  radio.addEventListener("change", () => {
+    catalogState.creatorType = radio.value;
+    void loadCatalog();
+  });
+});
+
+document.querySelectorAll('input[name="catalog-currency"]').forEach((radio) => {
+  radio.addEventListener("change", () => {
+    catalogState.currency = radio.value;
+    void loadCatalog();
+  });
+});
+
+document.querySelectorAll('input[name="catalog-price"]').forEach((radio) => {
+  radio.addEventListener("change", () => {
+    catalogState.priceMode = radio.value === "free" ? "free" : "any";
+    void loadCatalog();
+  });
+});
+
+document.querySelector("#catalog-price-go").addEventListener("click", () => {
+  catalogState.minPrice = catalogMinPrice.value.trim();
+  catalogState.maxPrice = catalogMaxPrice.value.trim();
+  catalogState.priceMode = "range";
+  document.querySelectorAll('input[name="catalog-price"]').forEach((radio) => {
+    radio.checked = false;
+  });
+  void loadCatalog();
+});
+
+document.querySelectorAll('input[name="catalog-unavailable"]').forEach((radio) => {
+  radio.addEventListener("change", () => {
+    catalogState.includeUnavailable = radio.value === "show";
+    void loadCatalog();
+  });
+});
+
+catalogSearch.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    catalogState.q = catalogSearch.value.trim();
+    void loadCatalog();
+  }
+});
+catalogSearch.addEventListener("search", () => {
+  if (!catalogSearch.value.trim()) {
+    catalogState.q = "";
+    void loadCatalog();
+  }
+});
+
+catalogSort.addEventListener("change", () => {
+  catalogState.sort = catalogSort.value;
+  void loadCatalog();
+});
+
+function hasActiveCatalogFilters() {
+  return catalogState.category !== "all"
+    || Boolean(catalogState.genre)
+    || Boolean(catalogState.creator)
+    || Boolean(catalogState.creatorType)
+    || Boolean(catalogState.currency)
+    || catalogState.priceMode !== "any"
+    || catalogState.includeUnavailable
+    || Boolean(catalogState.q);
+}
+
+function buildCatalogQuery() {
+  const params = new URLSearchParams();
+  if (catalogState.category !== "all") {
+    params.set("category", catalogState.category);
+  }
+  if (catalogState.genre) {
+    params.set("genre", catalogState.genre);
+  }
+  if (catalogState.creator) {
+    params.set("creator", catalogState.creator);
+  }
+  if (catalogState.creatorType) {
+    params.set("creatorType", catalogState.creatorType);
+  }
+  if (catalogState.currency) {
+    params.set("currency", catalogState.currency);
+  }
+  if (catalogState.priceMode === "free") {
+    params.set("free", "1");
+  }
+  if (catalogState.priceMode === "range") {
+    if (catalogState.minPrice !== "") {
+      params.set("minPrice", catalogState.minPrice);
+    }
+    if (catalogState.maxPrice !== "") {
+      params.set("maxPrice", catalogState.maxPrice);
+    }
+  }
+  if (catalogState.includeUnavailable) {
+    params.set("includeUnavailable", "1");
+  }
+  if (catalogState.q) {
+    params.set("q", catalogState.q);
+  }
+  if (catalogState.sort !== "relevance") {
+    params.set("sort", catalogState.sort);
+  }
+  const text = params.toString();
+  return text ? `?${text}` : "";
+}
+
+function createCatalogItemCard(item) {
+  const card = document.createElement("div");
+  card.className = "catalog-item";
+
+  const thumb = document.createElement("div");
+  thumb.className = "catalog-thumb";
+  if (item.thumbnailUrl) {
+    const image = document.createElement("img");
+    image.src = item.thumbnailUrl;
+    image.alt = item.name;
+    thumb.appendChild(image);
+  } else {
+    const initial = document.createElement("span");
+    initial.className = "catalog-thumb-initial";
+    initial.textContent = (item.name || "?").trim().charAt(0) || "?";
+    thumb.appendChild(initial);
+  }
+  if (item.isNew) {
+    const badges = document.createElement("div");
+    badges.className = "catalog-badges";
+    const badge = document.createElement("span");
+    badge.className = "catalog-badge";
+    badge.textContent = "New";
+    badges.appendChild(badge);
+    thumb.appendChild(badges);
+  }
+
+  const body = document.createElement("div");
+  body.className = "catalog-item-body";
+  const name = document.createElement("p");
+  name.className = "catalog-item-name";
+  name.textContent = item.name;
+  name.title = item.name;
+  body.appendChild(name);
+
+  if (item.isLimited || item.isLimitedUnique) {
+    const tags = document.createElement("div");
+    tags.className = "catalog-item-tags";
+    if (item.isLimited) {
+      const limited = document.createElement("span");
+      limited.className = "catalog-tag limited";
+      limited.textContent = "LIMITED";
+      tags.appendChild(limited);
+    }
+    if (item.isLimitedUnique) {
+      const unique = document.createElement("span");
+      unique.className = "catalog-tag unique";
+      unique.textContent = "U";
+      tags.appendChild(unique);
+    }
+    body.appendChild(tags);
+  }
+
+  const price = document.createElement("p");
+  price.className = "catalog-item-price";
+  if (item.price === 0) {
+    price.classList.add("free");
+    price.textContent = "Free";
+  } else if (item.currency === "tickets") {
+    price.textContent = `${item.price} Tickets`;
+  } else {
+    const icon = document.createElement("img");
+    icon.src = ROBUX_ICON;
+    icon.alt = "Robux";
+    const amount = document.createElement("span");
+    amount.textContent = String(item.price);
+    price.append(icon, amount);
+  }
+  body.appendChild(price);
+
+  if (item.salesCount > 0) {
+    const sales = document.createElement("p");
+    sales.className = "catalog-item-sales";
+    sales.textContent = `Sales ${item.salesCount}`;
+    body.appendChild(sales);
+  }
+
+  card.append(thumb, body);
+  return card;
+}
+
+async function loadCatalog() {
+  catalogCount.textContent = "Loading...";
+  const { ok, result } = await apiCall("GET", `/api/catalog${buildCatalogQuery()}`);
+  if (!ok) {
+    catalogGrid.textContent = "";
+    catalogCount.textContent = result.error || "Could not load the catalog.";
+    return;
+  }
+  const items = result.items || [];
+  const total = result.total || 0;
+  catalogCrumb.textContent = CATALOG_CATEGORY_LABELS[catalogState.category] || "All Categories";
+  catalogCount.textContent = total === 0
+    ? "0 Results"
+    : `1 - ${items.length} of ${total} Result${total === 1 ? "" : "s"}`;
+  catalogGrid.textContent = "";
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "catalog-empty";
+    empty.textContent = hasActiveCatalogFilters()
+      ? "No items match your filters. Try a different category or search."
+      : "There are no items in the catalog yet. Check back soon for new gear, faces, and more.";
+    catalogGrid.appendChild(empty);
+    return;
+  }
+  items.forEach((item) => catalogGrid.appendChild(createCatalogItemCard(item)));
 }
 
 function fillSelect(select, placeholder, items, selectedValue) {
