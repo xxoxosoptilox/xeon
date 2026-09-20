@@ -66,7 +66,7 @@
           <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Hide sidebar" aria-expanded="true">☰</button>
           <img src="xedra.png" alt="XEDRA" class="home-logo" />
           <nav class="home-nav" aria-label="Main navigation"><button>Discover</button><button>Marketplace</button><button>Create</button><button>Robux</button></nav>
-          <label class="search-box"><span aria-hidden="true">⌕</span><input type="search" placeholder="Search" /></label>
+          <label class="search-box"><span aria-hidden="true">⌕</span><input type="search" id="player-search" placeholder="Search" /></label>
           <div class="profile-chip"><img class="avatar-dot" src="noFilter.png" alt="" /><strong data-user-name>User</strong><span class="robux-count"><img class="robux-icon" src="Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png" alt="" /> <span data-robux-balance>0</span></span><button class="settings-button" id="settings-button" type="button" aria-label="Settings" aria-expanded="false"><img src="Firefly_RemoveBackground.png" alt="" /></button><div class="account-menu" id="account-menu" hidden><button type="button" id="open-settings-button">Settings</button><button type="button" id="logout-button">Log out</button></div></div>
         </header>
         <div class="home-body">
@@ -76,10 +76,17 @@
             <button class="premium-button">Get Premium</button>
           </aside>
           <div class="home-content">
-            <div class="welcome-row"><img class="welcome-avatar" src="noFilter.png" alt="" /><h2>Welcome, <span data-user-name>User</span></h2></div>
-            <section class="home-section"><div class="section-heading"><h3>Friends <span>(25)</span></h3><button>See All</button></div><div class="friends-row"><div class="friend"><img src="noFilter.png" alt="" /><span>027123d_3</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>BAKLAGAN</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>notkardin</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>Reza_Me</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>jezzeki</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>stut76</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>Baltic9</span></div><div class="friend"><img src="noFilter.png" alt="" /><span>Baldi</span></div></div></section>
-            <section class="home-section"><h3>Continue</h3></section>
-            <section class="home-section"><h3>Recommended For You</h3></section>
+            <div id="home-default-content">
+              <div class="welcome-row"><img class="welcome-avatar" src="noFilter.png" alt="" /><h2>Welcome, <span data-user-name>User</span></h2></div>
+              <section class="home-section"><div class="section-heading"><h3>Friends <span>(0)</span></h3><button>See All</button></div><div class="friends-row"></div></section>
+              <section class="home-section"><h3>Continue</h3></section>
+              <section class="home-section"><h3>Recommended For You</h3></section>
+            </div>
+            <section class="home-section" id="search-results-section" hidden>
+              <div class="section-heading"><h3>Player Results for <span id="search-results-query"></span></h3></div>
+              <p class="search-results-count" id="search-results-count"></p>
+              <div class="search-results-grid" id="search-results-grid"></div>
+            </section>
           </div>
         </div>
       </section>
