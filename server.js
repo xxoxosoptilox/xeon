@@ -247,6 +247,24 @@ app.put("/api/me", requireAuth, async (request, response) => {
   }
 });
 
+app.get("/api/users/search", requireAuth, async (request, response) => {
+  const query = typeof request.query.q === "string" ? request.query.q.trim() : "";
+  if (!query) {
+    return response.json({ users: [] });
+  }
+  try {
+    const escaped = query.replace(/[\\%_]/g, (character) => `\\${character}`);
+    const result = await pool.query(
+      `SELECT id, username FROM users WHERE username ILIKE $1 ESCAPE '\\' AND id <> $2 ORDER BY username LIMIT 20`,
+      [`%${escaped}%`, request.user.id]
+    );
+    return response.json({ users: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not search players." });
+  }
+});
+
 app.put("/api/me/username", requireAuth, async (request, response) => {
   const { newUsername, password } = request.body || {};
   const username = typeof newUsername === "string" ? newUsername.trim() : "";
