@@ -324,3 +324,11 @@ app.put("/api/me/password", requireAuth, async (request, response) => {
 
 migrate()
   .then(() => {
+    app.listen(port, () => {
+      console.log(`Xedra server running at http://localhost:${port}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Database migration failed:", error);
+    process.exit(1);
+  });
