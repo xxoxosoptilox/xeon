@@ -66,7 +66,8 @@ function applyTheme(name) {
 function displayUser(user) {
   const safeUsername = (user.username || "User").trim() || "User";
   userNameTargets.forEach((target) => { target.textContent = safeUsername; });
-  robuxBalanceTargets.forEach((target) => { target.textContent = safeUsername.toLowerCase() === "roblox" ? "∞" : "0"; });
+  const robuxText = safeUsername.toLowerCase() === "roblox" ? "∞" : String(user.robux ?? 0);
+  robuxBalanceTargets.forEach((target) => { target.textContent = robuxText; });
   applyTheme(user.preferences && user.preferences.theme);
 }
 
@@ -382,6 +383,13 @@ playerSearchInput.addEventListener("search", () => {
   if (!playerSearchInput.value.trim()) {
     showDefaultHomeContent();
   }
+});
+
+const homeNavButton = document.querySelector("#home-nav-button");
+homeNavButton.addEventListener("click", () => {
+  playerSearchInput.value = "";
+  showDefaultHomeContent();
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
 });
 
 function fillSelect(select, placeholder, items, selectedValue) {
