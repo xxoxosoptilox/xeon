@@ -82,7 +82,7 @@ async function createSession(response, userId) {
   setSessionCookie(response, token);
 }
 
-const USER_COLUMNS = `u.id, u.username, u.birthday::text AS birthday, u.gender, u.blurb, u.preferences, u.created_at`;
+const USER_COLUMNS = `u.id, u.username, u.birthday::text AS birthday, u.gender, u.blurb, u.preferences, u.robux, u.created_at`;
 const USER_SELECT = `SELECT ${USER_COLUMNS} FROM users u`;
 
 function normalizeUser(row) {
@@ -94,6 +94,7 @@ function normalizeUser(row) {
     gender: genderMap[row.gender] || row.gender || null,
     blurb: row.blurb || "",
     preferences: row.preferences || {},
+    robux: row.robux,
     createdAt: row.created_at
   };
 }
@@ -124,6 +125,7 @@ async function requireAuth(request, response, next) {
 async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS blurb TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS preferences JSONB NOT NULL DEFAULT '{}'::jsonb`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS robux INTEGER NOT NULL DEFAULT 500`);
   await pool.query(`CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -150,7 +152,7 @@ app.post("/api/signup", async (request, response) => {
     const result = await pool.query(
       `INSERT INTO users (username, password_hash, birthday, gender)
        VALUES ($1, $2, $3, $4)
-       RETURNING id, username, birthday, gender, created_at`,
+       RETURNING id, username, birthday, gender, created_at, robux`,
       [username.trim(), passwordHash, birthday, gender || null]
     );
     await createSession(response, result.rows[0].id);
@@ -182,6 +184,7 @@ app.post("/api/login", async (request, response) => {
     if (!passwordMatches) {
       return response.status(401).json({ error: "Invalid username or password." });
     }
+    await pool.query("UPDATE users SET robux = 500 WHERE id = $1", [user.id]);
     await createSession(response, user.id);
     const fullUser = await pool.query(`${USER_SELECT} WHERE u.id = $1`, [user.id]);
     return response.json({ user: normalizeUser(fullUser.rows[0]) });
@@ -321,11 +324,3 @@ app.put("/api/me/password", requireAuth, async (request, response) => {
 
 migrate()
   .then(() => {
-    app.listen(port, () => {
-      console.log(`Xedra server running at http://localhost:${port}`);
-    });
-  })
-  .catch((error) => {
-    console.error("Database migration failed:", error);
-    process.exit(1);
-  });
