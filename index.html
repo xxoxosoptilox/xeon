@@ -65,14 +65,14 @@
         <header class="home-topbar">
           <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Hide sidebar" aria-expanded="true">☰</button>
           <img src="xedra.png" alt="XEDRA" class="home-logo" />
-          <nav class="home-nav" aria-label="Main navigation"><button>Discover</button><button>Marketplace</button><button>Create</button><button>Robux</button></nav>
+          <nav class="home-nav" aria-label="Main navigation"><button>Discover</button><button type="button" id="top-marketplace-button">Marketplace</button><button>Create</button><button>Robux</button></nav>
           <label class="search-box"><span aria-hidden="true">⌕</span><input type="search" id="player-search" placeholder="Search" /></label>
           <div class="profile-chip"><img class="avatar-dot" src="noFilter.png" alt="" /><strong data-user-name>User</strong><span class="robux-count"><img class="robux-icon" src="Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png" alt="" /> <span data-robux-balance>0</span></span><button class="settings-button" id="settings-button" type="button" aria-label="Settings" aria-expanded="false"><img src="Firefly_RemoveBackground.png" alt="" /></button><div class="account-menu" id="account-menu" hidden><button type="button" id="open-settings-button">Settings</button><button type="button" id="logout-button">Log out</button></div></div>
         </header>
         <div class="home-body">
           <aside class="side-nav" aria-label="Account navigation">
             <div class="side-profile"><img class="avatar-large" src="noFilter.png" alt="" /><strong data-user-name>User</strong></div>
-            <button class="active" id="home-nav-button">⌂ <span>Home</span></button><button>♙ <span>Profile</span></button><button>▤ <span>Messages</span></button><button id="friends-nav-button">♧ <span>Friends</span><b id="friends-badge" hidden></b></button><button>♙ <span>Avatar</span></button><button>▣ <span>Inventory</span></button><button>◁ <span>Trade</span></button><button>♧ <span>Communities</span></button><button>▤ <span>Blog</span></button><button>☆ <span>Official Store</span></button><button>▣ <span>Buy Gift Cards</span></button>
+            <button class="active" id="home-nav-button">⌂ <span>Home</span></button><button type="button" id="catalog-nav-button">▦ <span>Catalog</span></button><button>♙ <span>Profile</span></button><button>▤ <span>Messages</span></button><button id="friends-nav-button">♧ <span>Friends</span><b id="friends-badge" hidden></b></button><button>♙ <span>Avatar</span></button><button>▣ <span>Inventory</span></button><button>◁ <span>Trade</span></button><button>♧ <span>Communities</span></button><button>▤ <span>Blog</span></button><button>☆ <span>Official Store</span></button><button>▣ <span>Buy Gift Cards</span></button>
             <button class="premium-button">Get Premium</button>
           </aside>
           <div class="home-content">
@@ -100,6 +100,84 @@
               <div class="friends-panel" id="friends-panel-friends" hidden></div>
               <div class="friends-panel" id="friends-panel-followers" hidden></div>
               <div class="friends-panel" id="friends-panel-following" hidden></div>
+            </section>
+            <section class="home-section" id="catalog-page" hidden>
+              <div class="catalog-layout">
+                <aside class="catalog-sidebar">
+                  <h4>All Categories</h4>
+                  <div class="catalog-categories" id="catalog-categories">
+                    <button class="catalog-category active" type="button" data-category="all">All Categories</button>
+                    <span class="catalog-category-heading">Featured</span>
+                    <button class="catalog-category" type="button" data-category="featured">All Featured Items</button>
+                    <button class="catalog-category" type="button" data-category="featured_accessories">Featured Accessories</button>
+                    <button class="catalog-category" type="button" data-category="featured_faces">Featured Faces</button>
+                    <button class="catalog-category" type="button" data-category="featured_gear">Featured Gear</button>
+                    <button class="catalog-category" type="button" data-category="community">Community Creations</button>
+                    <button class="catalog-category" type="button" data-category="collectibles">Collectibles</button>
+                    <button class="catalog-category" type="button" data-category="clothing">Clothing</button>
+                    <button class="catalog-category" type="button" data-category="body_parts">Body Parts</button>
+                    <button class="catalog-category" type="button" data-category="gear">Gear</button>
+                    <button class="catalog-category" type="button" data-category="accessories">Accessories</button>
+                  </div>
+                  <h4>Filters</h4>
+                  <fieldset class="catalog-filter-group">
+                    <legend>Genre</legend>
+                    <div id="catalog-genre-list"></div>
+                  </fieldset>
+                  <fieldset class="catalog-filter-group">
+                    <legend>Creator</legend>
+                    <label class="catalog-radio"><input type="radio" name="catalog-creator" value="" checked /> All Creators</label>
+                    <label class="catalog-radio"><input type="radio" name="catalog-creator" value="ROBLOX" /> ROBLOX</label>
+                    <div class="catalog-inline-fields">
+                      <input id="catalog-creator-name" type="text" autocomplete="off" placeholder="Username" />
+                      <button class="catalog-go" id="catalog-creator-go" type="button">Go</button>
+                    </div>
+                  </fieldset>
+                  <fieldset class="catalog-filter-group">
+                    <legend>Creator Type</legend>
+                    <label class="catalog-radio"><input type="radio" name="catalog-creator-type" value="" checked /> All</label>
+                    <label class="catalog-radio"><input type="radio" name="catalog-creator-type" value="user" /> User</label>
+                    <label class="catalog-radio"><input type="radio" name="catalog-creator-type" value="group" /> Group</label>
+                  </fieldset>
+                  <fieldset class="catalog-filter-group">
+                    <legend>Currency</legend>
+                    <label class="catalog-radio"><input type="radio" name="catalog-currency" value="" checked /> Any</label>
+                    <label class="catalog-radio"><input type="radio" name="catalog-currency" value="robux" /> Robux</label>
+                    <label class="catalog-radio"><input type="radio" name="catalog-currency" value="tickets" /> Tickets</label>
+                  </fieldset>
+                  <fieldset class="catalog-filter-group">
+                    <legend>Price</legend>
+                    <label class="catalog-radio"><input type="radio" name="catalog-price" value="any" checked /> Any Price</label>
+                    <div class="catalog-inline-fields">
+                      <input id="catalog-min-price" type="number" min="0" inputmode="numeric" placeholder="Min" />
+                      <input id="catalog-max-price" type="number" min="0" inputmode="numeric" placeholder="Max" />
+                      <button class="catalog-go" id="catalog-price-go" type="button">Go</button>
+                    </div>
+                    <label class="catalog-radio"><input type="radio" name="catalog-price" value="free" /> Free</label>
+                  </fieldset>
+                  <fieldset class="catalog-filter-group">
+                    <legend>Unavailable Items</legend>
+                    <label class="catalog-radio"><input type="radio" name="catalog-unavailable" value="hide" checked /> Hide</label>
+                    <label class="catalog-radio"><input type="radio" name="catalog-unavailable" value="show" /> Show</label>
+                  </fieldset>
+                </aside>
+                <div class="catalog-main">
+                  <h2>Catalog</h2>
+                  <p class="catalog-crumb" id="catalog-crumb">All Categories</p>
+                  <div class="catalog-toolbar">
+                    <input id="catalog-search" type="search" autocomplete="off" placeholder="Search the catalog" />
+                    <select id="catalog-sort" aria-label="Sort results">
+                      <option value="relevance">Relevance</option>
+                      <option value="bestsellers">Bestselling</option>
+                      <option value="newest">Newest</option>
+                      <option value="price_asc">Price (Low to High)</option>
+                      <option value="price_desc">Price (High to Low)</option>
+                    </select>
+                  </div>
+                  <p class="catalog-count" id="catalog-count"></p>
+                  <div class="catalog-grid" id="catalog-grid"></div>
+                </div>
+              </div>
             </section>
           </div>
         </div>
