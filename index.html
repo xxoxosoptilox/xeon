@@ -72,7 +72,7 @@
         <div class="home-body">
           <aside class="side-nav" aria-label="Account navigation">
             <div class="side-profile"><img class="avatar-large" src="noFilter.png" alt="" /><strong data-user-name>User</strong></div>
-            <button class="active" id="home-nav-button">⌂ <span>Home</span></button><button>♙ <span>Profile</span></button><button>▤ <span>Messages</span></button><button>♧ <span>Friends</span><b>2</b></button><button>♙ <span>Avatar</span></button><button>▣ <span>Inventory</span></button><button>◁ <span>Trade</span></button><button>♧ <span>Communities</span></button><button>▤ <span>Blog</span></button><button>☆ <span>Official Store</span></button><button>▣ <span>Buy Gift Cards</span></button>
+            <button class="active" id="home-nav-button">⌂ <span>Home</span></button><button>♙ <span>Profile</span></button><button>▤ <span>Messages</span></button><button id="friends-nav-button">♧ <span>Friends</span><b id="friends-badge" hidden></b></button><button>♙ <span>Avatar</span></button><button>▣ <span>Inventory</span></button><button>◁ <span>Trade</span></button><button>♧ <span>Communities</span></button><button>▤ <span>Blog</span></button><button>☆ <span>Official Store</span></button><button>▣ <span>Buy Gift Cards</span></button>
             <button class="premium-button">Get Premium</button>
           </aside>
           <div class="home-content">
@@ -86,6 +86,20 @@
               <div class="section-heading"><h3>Player Results for <span id="search-results-query"></span></h3></div>
               <p class="search-results-count" id="search-results-count"></p>
               <div class="search-results-grid" id="search-results-grid"></div>
+            </section>
+            <section class="home-section" id="friends-page" hidden>
+              <div class="section-heading"><h3>My Friends</h3></div>
+              <div class="friends-tabs" id="friends-tabs">
+                <button class="friends-tab active" type="button" data-tab="requests" data-label="Friend Requests">Friend Requests (0)</button>
+                <button class="friends-tab" type="button" data-tab="friends" data-label="Friends">Friends (0)</button>
+                <button class="friends-tab" type="button" data-tab="followers" data-label="Followers">Followers (0)</button>
+                <button class="friends-tab" type="button" data-tab="following" data-label="Following">Following (0)</button>
+              </div>
+              <p class="friends-status" id="friends-status" hidden></p>
+              <div class="friends-panel" id="friends-panel-requests"></div>
+              <div class="friends-panel" id="friends-panel-friends" hidden></div>
+              <div class="friends-panel" id="friends-panel-followers" hidden></div>
+              <div class="friends-panel" id="friends-panel-following" hidden></div>
             </section>
           </div>
         </div>
