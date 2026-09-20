@@ -69,6 +69,7 @@ function displayUser(user) {
   const robuxText = safeUsername.toLowerCase() === "roblox" ? "∞" : String(user.robux ?? 0);
   robuxBalanceTargets.forEach((target) => { target.textContent = robuxText; });
   applyTheme(user.preferences && user.preferences.theme);
+  void loadHomeFriends();
 }
 
 function openHomeScreen() {
@@ -307,6 +308,7 @@ const searchResultsGrid = document.querySelector("#search-results-grid");
 
 function showDefaultHomeContent() {
   searchResultsSection.hidden = true;
+  friendsPage.hidden = true;
   homeDefaultContent.hidden = false;
 }
 
@@ -327,15 +329,58 @@ function createPlayerResultCard(user) {
   text.append(name, status);
   head.append(avatar, text);
 
+  const actions = document.createElement("div");
+  actions.className = "player-result-actions";
+
   const addButton = document.createElement("button");
   addButton.type = "button";
   addButton.className = "add-friend-button";
-  addButton.textContent = "Add Friend";
-  addButton.addEventListener("click", () => {
-    addButton.textContent = "Coming soon";
+  if (user.is_friend) {
+    addButton.textContent = "Friends";
+    addButton.disabled = true;
+  } else if (user.request_sent) {
+    addButton.textContent = "Request Sent";
+    addButton.disabled = true;
+  } else {
+    addButton.textContent = "Add Friend";
+    addButton.addEventListener("click", async () => {
+      addButton.disabled = true;
+      const { ok, result } = await apiCall("POST", "/api/friends/requests", { userId: user.id });
+      if (ok) {
+        addButton.textContent = "Request Sent";
+        return;
+      }
+      addButton.disabled = false;
+      const message = result.error || "Could not send the request.";
+      if (/already friends/i.test(message)) {
+        addButton.textContent = "Friends";
+        addButton.disabled = true;
+      } else if (/already sent you/i.test(message)) {
+        addButton.textContent = "Check Requests";
+        searchResultsCount.textContent = message;
+      } else {
+        searchResultsCount.textContent = message;
+      }
+    });
+  }
+
+  const followButton = document.createElement("button");
+  followButton.type = "button";
+  followButton.className = "add-friend-button";
+  followButton.textContent = user.is_following ? "Unfollow" : "Follow";
+  followButton.addEventListener("click", async () => {
+    followButton.disabled = true;
+    const path = user.is_following ? `/api/follows/${user.id}` : "/api/follows";
+    const { ok } = await apiCall(user.is_following ? "DELETE" : "POST", path, user.is_following ? undefined : { userId: user.id });
+    if (ok) {
+      user.is_following = !user.is_following;
+      followButton.textContent = user.is_following ? "Unfollow" : "Follow";
+    }
+    followButton.disabled = false;
   });
 
-  card.append(head, addButton);
+  actions.append(addButton, followButton);
+  card.append(head, actions);
   return card;
 }
 
@@ -349,6 +394,7 @@ async function runPlayerSearch(rawQuery) {
   searchResultsCount.textContent = "Searching...";
   searchResultsGrid.textContent = "";
   homeDefaultContent.hidden = true;
+  friendsPage.hidden = true;
   searchResultsSection.hidden = false;
 
   try {
@@ -391,6 +437,246 @@ homeNavButton.addEventListener("click", () => {
   showDefaultHomeContent();
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
 });
+
+async function apiCall(method, path, body) {
+  try {
+    const response = await fetch(`${apiBase}${path}`, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      credentials: "same-origin",
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const result = await response.json().catch(() => ({}));
+    return { ok: response.ok, result };
+  } catch {
+    return { ok: false, result: { error: "The server is not running. Start it with: node server.js" } };
+  }
+}
+
+const friendsNavButton = document.querySelector("#friends-nav-button");
+const friendsBadge = document.querySelector("#friends-badge");
+const friendsPage = document.querySelector("#friends-page");
+const friendsStatus = document.querySelector("#friends-status");
+const homeFriendsCount = document.querySelector("#home-friends-count");
+const homeFriendsRow = document.querySelector("#home-friends-row");
+const friendsTabs = Array.from(document.querySelectorAll(".friends-tab"));
+const friendsPanels = {
+  requests: document.querySelector("#friends-panel-requests"),
+  friends: document.querySelector("#friends-panel-friends"),
+  followers: document.querySelector("#friends-panel-followers"),
+  following: document.querySelector("#friends-panel-following")
+};
+
+function showFriendsPage() {
+  homeDefaultContent.hidden = true;
+  searchResultsSection.hidden = true;
+  friendsPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadFriendsPage();
+}
+
+friendsNavButton.addEventListener("click", showFriendsPage);
+
+friendsTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    friendsTabs.forEach((item) => item.classList.toggle("active", item === tab));
+    Object.entries(friendsPanels).forEach(([key, panel]) => {
+      panel.hidden = key !== tab.dataset.tab;
+    });
+  });
+});
+
+function setFriendsStatus(message, isError) {
+  friendsStatus.hidden = !message;
+  friendsStatus.textContent = message || "";
+  friendsStatus.classList.toggle("error", Boolean(isError));
+}
+
+function setTabCount(tab, count) {
+  tab.textContent = `${tab.dataset.label} (${count})`;
+}
+
+function friendPageCard(user, buttons) {
+  const card = document.createElement("div");
+  card.className = "friend-page-card";
+  const avatar = document.createElement("img");
+  avatar.src = "noFilter.png";
+  avatar.alt = "";
+  const name = document.createElement("span");
+  name.className = "friend-name";
+  name.textContent = user.username;
+  const actions = document.createElement("div");
+  actions.className = "friend-card-actions";
+  buttons.forEach((button) => actions.appendChild(button));
+  card.append(avatar, name, actions);
+  return card;
+}
+
+function friendActionButton(label, primary, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = primary ? "friend-action-button primary" : "friend-action-button";
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function emptyFriendsNote(text) {
+  const note = document.createElement("p");
+  note.className = "friends-empty";
+  note.textContent = text;
+  return note;
+}
+
+function updateFriendsChrome(data) {
+  const requests = data.requests || [];
+  const friends = data.friends || [];
+
+  const requestsTab = friendsTabs.find((tab) => tab.dataset.tab === "requests");
+  setTabCount(requestsTab, requests.length);
+  friendsBadge.hidden = requests.length === 0;
+  friendsBadge.textContent = String(requests.length);
+  friendsTabs.forEach((tab) => {
+    if (tab !== requestsTab) {
+      setTabCount(tab, (data[tab.dataset.tab] || []).length);
+    }
+  });
+
+  homeFriendsCount.textContent = `(${friends.length})`;
+  homeFriendsRow.textContent = "";
+  if (!friends.length) {
+    homeFriendsRow.appendChild(emptyFriendsNote("You have no friends yet."));
+    return;
+  }
+  friends.forEach((user) => {
+    const card = document.createElement("div");
+    card.className = "friend-home-card";
+    const avatar = document.createElement("img");
+    avatar.src = "noFilter.png";
+    avatar.alt = "";
+    const name = document.createElement("span");
+    name.textContent = user.username;
+    card.append(avatar, name);
+    homeFriendsRow.appendChild(card);
+  });
+}
+
+async function loadHomeFriends() {
+  const { ok, result } = await apiCall("GET", "/api/friends");
+  if (ok) {
+    updateFriendsChrome(result);
+  }
+}
+
+async function respondToRequest(requestId, action) {
+  setFriendsStatus("");
+  const { ok, result } = await apiCall("POST", `/api/friends/requests/${requestId}/${action}`);
+  if (!ok) {
+    setFriendsStatus(result.error || "Could not update the request.", true);
+    return;
+  }
+  await loadFriendsPage();
+}
+
+async function toggleFollow(user, button) {
+  button.disabled = true;
+  const path = user.is_following ? `/api/follows/${user.id}` : "/api/follows";
+  const { ok } = await apiCall(user.is_following ? "DELETE" : "POST", path, user.is_following ? undefined : { userId: user.id });
+  if (ok) {
+    user.is_following = !user.is_following;
+    button.textContent = user.is_following ? "Unfollow" : "Follow";
+  }
+  button.disabled = false;
+}
+
+async function loadFriendsPage() {
+  setFriendsStatus("Loading...");
+  const { ok, result } = await apiCall("GET", "/api/friends");
+  if (!ok) {
+    Object.values(friendsPanels).forEach((panel) => { panel.textContent = ""; });
+    setFriendsStatus(result.error || "Could not load your friends.", true);
+    return;
+  }
+  setFriendsStatus("");
+
+  const data = result;
+  const requests = data.requests || [];
+  const friends = data.friends || [];
+  const followers = data.followers || [];
+  const following = data.following || [];
+  updateFriendsChrome(data);
+
+  friendsPanels.requests.textContent = "";
+  if (!requests.length) {
+    friendsPanels.requests.appendChild(emptyFriendsNote("You have no friend requests."));
+  } else {
+    requests.forEach((user) => {
+      friendsPanels.requests.appendChild(friendPageCard(user, [
+        friendActionButton("Accept", true, () => void respondToRequest(user.request_id, "accept")),
+        friendActionButton("Decline", false, () => void respondToRequest(user.request_id, "decline"))
+      ]));
+    });
+  }
+
+  friendsPanels.friends.textContent = "";
+  if (!friends.length) {
+    friendsPanels.friends.appendChild(emptyFriendsNote("You have no friends yet."));
+  } else {
+    friends.forEach((user) => {
+      friendsPanels.friends.appendChild(friendPageCard(user, [
+        friendActionButton("Unfriend", false, async () => {
+          const unfriendResult = await apiCall("DELETE", `/api/friends/${user.id}`);
+          if (!unfriendResult.ok) {
+            setFriendsStatus(unfriendResult.result.error || "Could not unfriend.", true);
+            return;
+          }
+          await loadFriendsPage();
+        })
+      ]));
+    });
+  }
+
+  friendsPanels.followers.textContent = "";
+  if (!followers.length) {
+    friendsPanels.followers.appendChild(emptyFriendsNote("You have no followers."));
+  } else {
+    followers.forEach((user) => {
+      const buttons = [];
+      if (!user.is_friend) {
+        buttons.push(friendActionButton("Add Friend", false, async (event) => {
+          const button = event.currentTarget;
+          button.disabled = true;
+          const addResult = await apiCall("POST", "/api/friends/requests", { userId: user.id });
+          if (addResult.ok) {
+            button.textContent = "Request Sent";
+            return;
+          }
+          button.disabled = false;
+          setFriendsStatus(addResult.result.error || "Could not send the request.", true);
+        }));
+      }
+      if (user.following_back) {
+        const button = friendActionButton("Following", false, () => {});
+        button.disabled = true;
+        buttons.push(button);
+      } else {
+        const button = friendActionButton("Follow Back", true, () => void toggleFollow(user, button));
+        buttons.push(button);
+      }
+      friendsPanels.followers.appendChild(friendPageCard(user, buttons));
+    });
+  }
+
+  friendsPanels.following.textContent = "";
+  if (!following.length) {
+    friendsPanels.following.appendChild(emptyFriendsNote("You are not following anyone."));
+  } else {
+    following.forEach((user) => {
+      const button = friendActionButton("Unfollow", false, () => void toggleFollow(user, button));
+      friendsPanels.following.appendChild(friendPageCard(user, [button]));
+    });
+  }
+}
 
 function fillSelect(select, placeholder, items, selectedValue) {
   select.textContent = "";
