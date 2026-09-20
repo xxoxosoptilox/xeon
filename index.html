@@ -40,7 +40,7 @@
           <button class="signup-button" type="submit">Sign Up</button>
           <p class="form-message" id="form-message" role="status" aria-live="polite"></p>
         </form>
-        <p class="demo-note">Local preview only. No account information is sent anywhere.</p>
+        <p class="demo-note">Accounts are stored securely on XEDRA servers.</p>
       </section>
 
       <section class="login-card" aria-labelledby="login-title" hidden>
@@ -58,16 +58,16 @@
           <p class="login-signup">Don't have an account? <button class="login-link inline-link" type="button" data-action="signup">Sign Up</button></p>
           <p class="form-message" id="login-message" role="status" aria-live="polite"></p>
         </form>
-        <p class="demo-note">Local preview only. No account information is sent anywhere.</p>
+        <p class="demo-note">Accounts are stored securely on XEDRA servers.</p>
       </section>
 
-      <section class="home-screen" id="home-screen" hidden aria-label="XEDRA home menu">
+      <section class="home-screen" id="home-screen" data-theme="xeon" hidden aria-label="XEDRA home menu">
         <header class="home-topbar">
           <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Hide sidebar" aria-expanded="true">☰</button>
           <img src="xedra.png" alt="XEDRA" class="home-logo" />
           <nav class="home-nav" aria-label="Main navigation"><button>Discover</button><button>Marketplace</button><button>Create</button><button>Robux</button></nav>
           <label class="search-box"><span aria-hidden="true">⌕</span><input type="search" placeholder="Search" /></label>
-          <div class="profile-chip"><img class="avatar-dot" src="noFilter.png" alt="" /><strong data-user-name>User</strong><span class="robux-count"><img class="robux-icon" src="Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png" alt="" /> <span data-robux-balance>0</span></span><button class="settings-button" id="settings-button" type="button" aria-label="Settings" aria-expanded="false"><img src="Firefly_RemoveBackground.png" alt="" /></button><div class="account-menu" id="account-menu" hidden><button type="button">Settings</button><button type="button" id="logout-button">Log out</button></div></div>
+          <div class="profile-chip"><img class="avatar-dot" src="noFilter.png" alt="" /><strong data-user-name>User</strong><span class="robux-count"><img class="robux-icon" src="Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png" alt="" /> <span data-robux-balance>0</span></span><button class="settings-button" id="settings-button" type="button" aria-label="Settings" aria-expanded="false"><img src="Firefly_RemoveBackground.png" alt="" /></button><div class="account-menu" id="account-menu" hidden><button type="button" id="open-settings-button">Settings</button><button type="button" id="logout-button">Log out</button></div></div>
         </header>
         <div class="home-body">
           <aside class="side-nav" aria-label="Account navigation">
@@ -83,6 +83,94 @@
           </div>
         </div>
       </section>
+      <div class="settings-overlay" id="settings-overlay" hidden>
+        <div class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+          <header class="settings-header">
+            <h2 id="settings-title">My Settings</h2>
+            <button class="settings-close" id="settings-close" type="button" aria-label="Close settings">✕</button>
+          </header>
+          <div class="settings-body">
+            <section class="settings-section" aria-labelledby="account-info-title">
+              <h3 id="account-info-title">Account Info</h3>
+              <div class="settings-card">
+                <div class="settings-row">
+                  <div class="settings-row-text"><span class="settings-label">Username</span><strong id="settings-username">—</strong></div>
+                  <button class="settings-edit" id="edit-username-button" type="button" aria-label="Change username">✎</button>
+                </div>
+                <div class="settings-editor" id="username-editor" hidden>
+                  <input id="new-username" type="text" autocomplete="off" placeholder="New username" />
+                  <input id="username-password" type="password" autocomplete="off" placeholder="Confirm your password" />
+                  <div class="editor-actions">
+                    <button class="button-primary" id="save-username" type="button">Save Username</button>
+                    <button class="button-ghost" type="button" data-close-editor="username-editor">Cancel</button>
+                  </div>
+                </div>
+                <div class="settings-row">
+                  <div class="settings-row-text"><span class="settings-label">Password</span><strong>**********</strong></div>
+                  <button class="settings-edit" id="edit-password-button" type="button" aria-label="Change password">✎</button>
+                </div>
+                <div class="settings-editor" id="password-editor" hidden>
+                  <input id="current-password" type="password" autocomplete="off" placeholder="Current password" />
+                  <input id="new-password" type="password" autocomplete="off" placeholder="New password (8+ characters)" />
+                  <input id="confirm-password" type="password" autocomplete="off" placeholder="Confirm new password" />
+                  <div class="editor-actions">
+                    <button class="button-primary" id="save-password" type="button">Save Password</button>
+                    <button class="button-ghost" type="button" data-close-editor="password-editor">Cancel</button>
+                  </div>
+                </div>
+                <p class="settings-status" id="account-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+
+            <section class="settings-section" aria-labelledby="personal-title">
+              <h3 id="personal-title">Personal</h3>
+              <div class="settings-card">
+                <textarea id="settings-blurb" rows="3" maxlength="1000" placeholder="Tell the XEDRA community about yourself..."></textarea>
+                <p class="settings-warning">Do not provide any details that can be used to identify you outside XEDRA.</p>
+                <div class="settings-grid">
+                  <span class="settings-label">Birthday</span>
+                  <div class="birthday-fields">
+                    <select id="settings-month" aria-label="Birth month"></select>
+                    <select id="settings-day" aria-label="Birth day"></select>
+                    <select id="settings-year" aria-label="Birth year"></select>
+                  </div>
+                  <span class="settings-label">Gender</span>
+                  <div class="settings-gender" role="group" aria-label="Gender">
+                    <button type="button" data-gender-value="male">Male</button>
+                    <button type="button" data-gender-value="female">Female</button>
+                  </div>
+                </div>
+                <div class="editor-actions">
+                  <button class="button-primary button-accent" id="save-personal" type="button">Save</button>
+                </div>
+                <p class="settings-status" id="personal-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+
+            <section class="settings-section" aria-labelledby="privacy-title">
+              <h3 id="privacy-title">Privacy</h3>
+              <div class="settings-card">
+                <div class="settings-row"><span class="settings-label">Who can message me?</span><select class="privacy-select" data-pref="messagePrivacy" aria-label="Who can message me"></select></div>
+                <div class="settings-row"><span class="settings-label">Who can join me in experiences?</span><select class="privacy-select" data-pref="joinPrivacy" aria-label="Who can join me"></select></div>
+                <div class="settings-row"><span class="settings-label">Who can see my inventory?</span><select class="privacy-select" data-pref="inventoryPrivacy" aria-label="Who can see my inventory"></select></div>
+                <p class="settings-status" id="privacy-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+
+            <section class="settings-section" aria-labelledby="extensions-title">
+              <h3 id="extensions-title">Extensions</h3>
+              <div class="settings-card">
+                <div class="settings-row">
+                  <span class="settings-label">Website Theme</span>
+                  <select id="theme-select" aria-label="Website theme"></select>
+                </div>
+                <p class="settings-hint">Applies instantly and saves to your account.</p>
+                <p class="settings-status" id="theme-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
     </main>
     <div class="black-screen" id="black-screen" hidden aria-hidden="true"></div>
     <script src="script.js"></script>
