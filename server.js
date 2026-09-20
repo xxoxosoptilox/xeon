@@ -151,6 +151,25 @@ async function migrate() {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (follower_id, followee_id)
   )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS catalog_items (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'accessories',
+    genre TEXT NOT NULL DEFAULT '',
+    creator_name TEXT NOT NULL DEFAULT '',
+    creator_type TEXT NOT NULL DEFAULT 'user',
+    currency TEXT NOT NULL DEFAULT 'robux',
+    price INTEGER NOT NULL DEFAULT 0,
+    is_limited BOOLEAN NOT NULL DEFAULT false,
+    is_limited_unique BOOLEAN NOT NULL DEFAULT false,
+    is_new BOOLEAN NOT NULL DEFAULT false,
+    is_featured BOOLEAN NOT NULL DEFAULT false,
+    is_available BOOLEAN NOT NULL DEFAULT true,
+    sales_count INTEGER NOT NULL DEFAULT 0,
+    thumbnail_url TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
 }
 
 app.post("/api/signup", async (request, response) => {
@@ -290,6 +309,124 @@ app.get("/api/users/search", requireAuth, async (request, response) => {
   } catch (error) {
     console.error(error);
     return response.status(500).json({ error: "Could not search players." });
+  }
+});
+
+const CATALOG_CATEGORY_VALUES = new Set(["featured", "community", "collectibles", "clothing", "body_parts", "gear", "accessories"]);
+
+function catalogString(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function escapeLikePattern(value) {
+  return value.replace(/[!%_]/g, (character) => `!${character}`);
+}
+
+function normalizeCatalogItem(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    genre: row.genre,
+    creatorName: row.creator_name,
+    creatorType: row.creator_type,
+    currency: row.currency,
+    price: row.price,
+    isLimited: row.is_limited,
+    isLimitedUnique: row.is_limited_unique,
+    isNew: row.is_new,
+    isFeatured: row.is_featured,
+    isAvailable: row.is_available,
+    salesCount: row.sales_count,
+    thumbnailUrl: row.thumbnail_url,
+    createdAt: row.created_at
+  };
+}
+
+app.get("/api/catalog", requireAuth, async (request, response) => {
+  const clauses = [];
+  const values = [];
+  const add = (clause, value) => {
+    if (value === undefined) {
+      clauses.push(clause);
+      return;
+    }
+    values.push(value);
+    clauses.push(clause.replace("$$", `$${values.length}`));
+  };
+
+  const category = catalogString(request.query.category) || "all";
+  if (category === "featured") {
+    add("is_featured = true");
+  } else if (category.startsWith("featured_")) {
+    add("is_featured = true AND category = $$", category.slice("featured_".length));
+  } else if (CATALOG_CATEGORY_VALUES.has(category)) {
+    add("category = $$", category);
+  }
+
+  const genre = catalogString(request.query.genre);
+  if (genre) {
+    add("genre = $$", genre);
+  }
+
+  const creatorType = catalogString(request.query.creatorType);
+  if (creatorType === "user" || creatorType === "group") {
+    add("creator_type = $$", creatorType);
+  }
+
+  const creator = catalogString(request.query.creator);
+  if (creator) {
+    add("creator_name ILIKE $$ ESCAPE '!'", `%${escapeLikePattern(creator)}%`);
+  }
+
+  const currency = catalogString(request.query.currency);
+  if (currency === "robux" || currency === "tickets") {
+    add("currency = $$", currency);
+  }
+
+  if (request.query.free === "1" || request.query.free === "true") {
+    add("price = 0");
+  }
+  const minPrice = Number(request.query.minPrice);
+  if (Number.isFinite(minPrice) && minPrice >= 0) {
+    add("price >= $$", Math.floor(minPrice));
+  }
+  const maxPrice = Number(request.query.maxPrice);
+  if (Number.isFinite(maxPrice) && maxPrice >= 0) {
+    add("price <= $$", Math.floor(maxPrice));
+  }
+
+  const query = catalogString(request.query.q);
+  if (query) {
+    add("name ILIKE $$ ESCAPE '!'", `%${escapeLikePattern(query)}%`);
+  }
+
+  if (request.query.includeUnavailable !== "1" && request.query.includeUnavailable !== "true") {
+    add("is_available = true");
+  }
+
+  const sort = catalogString(request.query.sort);
+  const orderBy = {
+    price_asc: "price ASC, name ASC",
+    price_desc: "price DESC, name ASC",
+    newest: "created_at DESC",
+    bestsellers: "sales_count DESC, name ASC"
+  }[sort] || "is_featured DESC, sales_count DESC, name ASC";
+
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  try {
+    const result = await pool.query(
+      `SELECT id, name, category, genre, creator_name, creator_type, currency, price,
+         is_limited, is_limited_unique, is_new, is_featured, is_available, sales_count,
+         thumbnail_url, created_at, COUNT(*) OVER() AS total
+       FROM catalog_items ${where} ORDER BY ${orderBy} LIMIT 50`,
+      values
+    );
+    const total = result.rows.length ? Number(result.rows[0].total) : 0;
+    return response.json({ items: result.rows.map(normalizeCatalogItem), total });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load the catalog." });
   }
 });
 
