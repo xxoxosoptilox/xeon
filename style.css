@@ -114,6 +114,10 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 .home-section h3 span { font-weight: 700; }
 .section-heading button { color: inherit; font-size: 12px; }
 .friends-row, .game-row, .recommend-row { display: flex; gap: 13px; overflow: hidden; }
+.friends-row { flex-wrap: wrap; overflow: visible; }
+.friend-home-card { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 84px; }
+.friend-home-card img { width: 72px; height: 72px; object-fit: cover; border-radius: 50%; }
+.friend-home-card span { max-width: 84px; font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .friend { display: grid; min-width: 72px; justify-items: center; gap: 5px; font-size: 9px; text-align: center; }
 .friend i { display: grid; width: 68px; height: 68px; place-items: center; border-radius: 50%; color: #25272b; background: linear-gradient(145deg, #e4e5e6, #9da4ab); font-size: 27px; font-style: normal; font-weight: 900; }
 .friend img { display: block; width: 68px; height: 68px; object-fit: cover; border-radius: 50%; }
@@ -183,8 +187,28 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 .player-result-head img { width: 56px; height: 56px; object-fit: cover; border-radius: 50%; }
 .player-result-head strong { display: block; font-size: 14px; }
 .player-result-head span { color: var(--hs-muted); font-size: 11px; }
-.add-friend-button { width: calc(100% - 24px); min-height: 30px; margin: 0 12px 12px; border: 1px solid var(--hs-border); border-radius: 5px; color: inherit; background: transparent; font-size: 12px; font-weight: 700; }
-.add-friend-button:hover { background: var(--hs-hover); }
+.player-result-actions { display: flex; gap: 8px; padding: 0 12px 12px; }
+.add-friend-button { flex: 1; min-height: 30px; border: 1px solid var(--hs-border); border-radius: 5px; color: inherit; background: transparent; font-size: 12px; font-weight: 700; cursor: pointer; }
+.add-friend-button:hover:not(:disabled) { background: var(--hs-hover); }
+.add-friend-button:disabled { opacity: .6; cursor: default; }
+
+.friends-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--hs-border); margin-bottom: 16px; }
+.friends-tab { padding: 10px 14px; border: none; border-bottom: 2px solid transparent; background: transparent; color: var(--hs-muted); font-size: 13px; font-weight: 700; cursor: pointer; }
+.friends-tab:hover { color: inherit; }
+.friends-tab.active { color: inherit; border-bottom-color: var(--hs-accent); }
+.friends-status { margin: -6px 0 12px; font-size: 12px; }
+.friends-status.error { color: #ff7b7b; }
+.friends-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.friend-page-card { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--hs-border); border-radius: 8px; background: var(--hs-panel); }
+.friend-page-card img { width: 52px; height: 52px; object-fit: cover; border-radius: 50%; }
+.friend-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.friend-card-actions { display: flex; flex-direction: column; gap: 6px; }
+.friend-action-button { min-height: 28px; padding: 0 12px; border: 1px solid var(--hs-border); border-radius: 5px; background: transparent; color: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.friend-action-button:hover:not(:disabled) { background: var(--hs-hover); }
+.friend-action-button.primary { background: var(--hs-accent); border-color: var(--hs-accent); color: #fff; }
+.friend-action-button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--hs-accent); }
+.friend-action-button:disabled { opacity: .6; cursor: default; }
+.friends-empty { margin: 4px 0 0; color: var(--hs-muted); font-size: 13px; }
 
 @keyframes appear { from { opacity: 0; transform: translateY(12px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes black-screen-in { from { opacity: 0; } to { opacity: 1; } }
