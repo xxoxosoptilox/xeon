@@ -132,6 +132,25 @@ async function migrate() {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id)`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS friend_requests (
+    id SERIAL PRIMARY KEY,
+    requester_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    addressee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (requester_id, addressee_id)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS friendships (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    friend_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, friend_id)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS follows (
+    follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    followee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (follower_id, followee_id)
+  )`);
 }
 
 app.post("/api/signup", async (request, response) => {
@@ -258,13 +277,201 @@ app.get("/api/users/search", requireAuth, async (request, response) => {
   try {
     const escaped = query.replace(/[\\%_]/g, (character) => `\\${character}`);
     const result = await pool.query(
-      `SELECT id, username FROM users WHERE username ILIKE $1 ESCAPE '\\' AND id <> $2 ORDER BY username LIMIT 20`,
+      `SELECT u.id, u.username,
+          EXISTS(SELECT 1 FROM friendships f WHERE f.user_id = $2 AND f.friend_id = u.id) AS is_friend,
+          EXISTS(SELECT 1 FROM friend_requests r WHERE r.requester_id = $2 AND r.addressee_id = u.id) AS request_sent,
+          EXISTS(SELECT 1 FROM follows fl WHERE fl.follower_id = $2 AND fl.followee_id = u.id) AS is_following
+        FROM users u
+        WHERE u.username ILIKE $1 ESCAPE '\\' AND u.id <> $2
+        ORDER BY u.username LIMIT 20`,
       [`%${escaped}%`, request.user.id]
     );
     return response.json({ users: result.rows });
   } catch (error) {
     console.error(error);
     return response.status(500).json({ error: "Could not search players." });
+  }
+});
+
+app.get("/api/friends", requireAuth, async (request, response) => {
+  const me = request.user.id;
+  try {
+    const incoming = await pool.query(
+      `SELECT fr.id AS request_id, u.id, u.username, fr.created_at
+       FROM friend_requests fr JOIN users u ON u.id = fr.requester_id
+       WHERE fr.addressee_id = $1 ORDER BY fr.created_at DESC`,
+      [me]
+    );
+    const friends = await pool.query(
+      `SELECT u.id, u.username, f.created_at AS friend_since
+       FROM friendships f JOIN users u ON u.id = f.friend_id
+       WHERE f.user_id = $1 ORDER BY u.username`,
+      [me]
+    );
+    const followers = await pool.query(
+      `SELECT u.id, u.username, fo.created_at,
+         EXISTS(SELECT 1 FROM follows fl WHERE fl.follower_id = $1 AND fl.followee_id = u.id) AS following_back,
+         EXISTS(SELECT 1 FROM friendships fr WHERE fr.user_id = $1 AND fr.friend_id = u.id) AS is_friend
+       FROM follows fo JOIN users u ON u.id = fo.follower_id
+       WHERE fo.followee_id = $1 ORDER BY fo.created_at DESC`,
+      [me]
+    );
+    const following = await pool.query(
+      `SELECT u.id, u.username, fo.created_at
+       FROM follows fo JOIN users u ON u.id = fo.followee_id
+       WHERE fo.follower_id = $1 ORDER BY fo.created_at DESC`,
+      [me]
+    );
+    return response.json({
+      requests: incoming.rows,
+      friends: friends.rows,
+      followers: followers.rows,
+      following: following.rows
+    });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load friends." });
+  }
+});
+
+app.post("/api/friends/requests", requireAuth, async (request, response) => {
+  const targetId = Number(request.body && request.body.userId);
+  const me = request.user.id;
+  if (!Number.isInteger(targetId)) {
+    return response.status(400).json({ error: "A valid user is required." });
+  }
+  if (targetId === me) {
+    return response.status(400).json({ error: "You cannot add yourself as a friend." });
+  }
+  try {
+    const target = await pool.query("SELECT id FROM users WHERE id = $1", [targetId]);
+    if (!target.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    const alreadyFriends = await pool.query(
+      "SELECT 1 FROM friendships WHERE user_id = $1 AND friend_id = $2",
+      [me, targetId]
+    );
+    if (alreadyFriends.rows[0]) {
+      return response.status(409).json({ error: "You are already friends with this user." });
+    }
+    const alreadyRequested = await pool.query(
+      "SELECT 1 FROM friend_requests WHERE requester_id = $1 AND addressee_id = $2",
+      [me, targetId]
+    );
+    if (alreadyRequested.rows[0]) {
+      return response.status(409).json({ error: "Friend request already sent." });
+    }
+    const reverseRequest = await pool.query(
+      "SELECT 1 FROM friend_requests WHERE requester_id = $1 AND addressee_id = $2",
+      [targetId, me]
+    );
+    if (reverseRequest.rows[0]) {
+      return response.status(409).json({ error: "This user already sent you a request. Check your Friend Requests." });
+    }
+    await pool.query(
+      "INSERT INTO friend_requests (requester_id, addressee_id) VALUES ($1, $2)",
+      [me, targetId]
+    );
+    return response.status(201).json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not send the friend request." });
+  }
+});
+
+async function respondToFriendRequest(request, response, accept) {
+  const requestId = Number(request.params.id);
+  const me = request.user.id;
+  if (!Number.isInteger(requestId)) {
+    return response.status(400).json({ error: "A valid request is required." });
+  }
+  try {
+    const result = await pool.query(
+      "DELETE FROM friend_requests WHERE id = $1 AND addressee_id = $2 RETURNING requester_id",
+      [requestId, me]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return response.status(404).json({ error: "Request not found." });
+    }
+    if (accept) {
+      await pool.query(
+        "INSERT INTO friendships (user_id, friend_id) VALUES ($1, $2), ($2, $1) ON CONFLICT DO NOTHING",
+        [me, row.requester_id]
+      );
+    }
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: accept ? "Could not accept the request." : "Could not decline the request." });
+  }
+}
+
+app.post("/api/friends/requests/:id/accept", requireAuth, (request, response) => {
+  return respondToFriendRequest(request, response, true);
+});
+
+app.post("/api/friends/requests/:id/decline", requireAuth, (request, response) => {
+  return respondToFriendRequest(request, response, false);
+});
+
+app.post("/api/follows", requireAuth, async (request, response) => {
+  const targetId = Number(request.body && request.body.userId);
+  const me = request.user.id;
+  if (!Number.isInteger(targetId)) {
+    return response.status(400).json({ error: "A valid user is required." });
+  }
+  if (targetId === me) {
+    return response.status(400).json({ error: "You cannot follow yourself." });
+  }
+  try {
+    const target = await pool.query("SELECT id FROM users WHERE id = $1", [targetId]);
+    if (!target.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    await pool.query(
+      "INSERT INTO follows (follower_id, followee_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+      [me, targetId]
+    );
+    return response.status(201).json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not follow this user." });
+  }
+});
+
+app.delete("/api/friends/:userId", requireAuth, async (request, response) => {
+  const targetId = Number(request.params.userId);
+  if (!Number.isInteger(targetId)) {
+    return response.status(400).json({ error: "A valid user is required." });
+  }
+  try {
+    await pool.query(
+      "DELETE FROM friendships WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)",
+      [request.user.id, targetId]
+    );
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not unfriend this user." });
+  }
+});
+
+app.delete("/api/follows/:userId", requireAuth, async (request, response) => {
+  const targetId = Number(request.params.userId);
+  if (!Number.isInteger(targetId)) {
+    return response.status(400).json({ error: "A valid user is required." });
+  }
+  try {
+    await pool.query(
+      "DELETE FROM follows WHERE follower_id = $1 AND followee_id = $2",
+      [request.user.id, targetId]
+    );
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not unfollow this user." });
   }
 });
 
