@@ -297,6 +297,93 @@ logoutButton.addEventListener("click", async () => {
   document.querySelector("#login-password").value = "";
 });
 
+const playerSearchInput = document.querySelector("#player-search");
+const homeDefaultContent = document.querySelector("#home-default-content");
+const searchResultsSection = document.querySelector("#search-results-section");
+const searchResultsQuery = document.querySelector("#search-results-query");
+const searchResultsCount = document.querySelector("#search-results-count");
+const searchResultsGrid = document.querySelector("#search-results-grid");
+
+function showDefaultHomeContent() {
+  searchResultsSection.hidden = true;
+  homeDefaultContent.hidden = false;
+}
+
+function createPlayerResultCard(user) {
+  const card = document.createElement("div");
+  card.className = "player-result-card";
+
+  const head = document.createElement("div");
+  head.className = "player-result-head";
+  const avatar = document.createElement("img");
+  avatar.src = "noFilter.png";
+  avatar.alt = "";
+  const text = document.createElement("div");
+  const name = document.createElement("strong");
+  name.textContent = user.username;
+  const status = document.createElement("span");
+  status.textContent = "Offline";
+  text.append(name, status);
+  head.append(avatar, text);
+
+  const addButton = document.createElement("button");
+  addButton.type = "button";
+  addButton.className = "add-friend-button";
+  addButton.textContent = "Add Friend";
+  addButton.addEventListener("click", () => {
+    addButton.textContent = "Coming soon";
+  });
+
+  card.append(head, addButton);
+  return card;
+}
+
+async function runPlayerSearch(rawQuery) {
+  const query = rawQuery.trim();
+  if (!query) {
+    showDefaultHomeContent();
+    return;
+  }
+  searchResultsQuery.textContent = query;
+  searchResultsCount.textContent = "Searching...";
+  searchResultsGrid.textContent = "";
+  homeDefaultContent.hidden = true;
+  searchResultsSection.hidden = false;
+
+  try {
+    const response = await fetch(`${apiBase}/api/users/search?q=${encodeURIComponent(query)}`, { credentials: "same-origin" });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      searchResultsCount.textContent = result.error || "Could not search players.";
+      return;
+    }
+    const users = result.users || [];
+    searchResultsCount.textContent = `${users.length} result${users.length === 1 ? "" : "s"}`;
+    if (!users.length) {
+      const empty = document.createElement("p");
+      empty.className = "search-empty";
+      empty.textContent = "No players found.";
+      searchResultsGrid.appendChild(empty);
+      return;
+    }
+    users.forEach((user) => searchResultsGrid.appendChild(createPlayerResultCard(user)));
+  } catch {
+    searchResultsCount.textContent = "The server is not running. Start it with: node server.js";
+  }
+}
+
+playerSearchInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void runPlayerSearch(playerSearchInput.value);
+  }
+});
+playerSearchInput.addEventListener("search", () => {
+  if (!playerSearchInput.value.trim()) {
+    showDefaultHomeContent();
+  }
+});
+
 function fillSelect(select, placeholder, items, selectedValue) {
   select.textContent = "";
   const placeholderOption = document.createElement("option");
