@@ -21,7 +21,8 @@ const PUBLIC_FILES = new Set([
   "xedra.png",
   "noFilter.png",
   "Firefly_RemoveBackground.png",
-  "Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png"
+  "Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png",
+  "login-bg.jpg"
 ]);
 
 app.use(cors());
