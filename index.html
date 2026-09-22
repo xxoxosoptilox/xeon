@@ -74,6 +74,7 @@
             <div class="side-profile"><img class="avatar-large" src="noFilter.png" alt="" /><strong data-user-name>User</strong></div>
             <button class="active" id="home-nav-button">⌂ <span>Home</span></button><button type="button" id="catalog-nav-button">▦ <span>Catalog</span></button><button>♙ <span>Profile</span></button><button>▤ <span>Messages</span></button><button id="friends-nav-button">♧ <span>Friends</span><b id="friends-badge" hidden></b></button><button>♙ <span>Avatar</span></button><button>▣ <span>Inventory</span></button><button>◁ <span>Trade</span></button><button>♧ <span>Communities</span></button><button>▤ <span>Blog</span></button><button>☆ <span>Official Store</span></button><button>▣ <span>Buy Gift Cards</span></button>
             <button class="premium-button">Get Premium</button>
+            <button class="admin-panel-button" id="admin-nav-button" type="button" hidden>Admin Panel</button>
           </aside>
           <div class="home-content">
             <div id="home-default-content">
@@ -157,8 +158,8 @@
                   </fieldset>
                   <fieldset class="catalog-filter-group">
                     <legend>Unavailable Items</legend>
-                    <label class="catalog-radio"><input type="radio" name="catalog-unavailable" value="hide" checked /> Hide</label>
-                    <label class="catalog-radio"><input type="radio" name="catalog-unavailable" value="show" /> Show</label>
+                    <label class="catalog-radio"><input type="radio" name="catalog-unavailable" value="hide" /> Hide</label>
+                    <label class="catalog-radio"><input type="radio" name="catalog-unavailable" value="show" checked /> Show</label>
                   </fieldset>
                 </aside>
                 <div class="catalog-main">
@@ -178,6 +179,54 @@
                   <div class="catalog-grid" id="catalog-grid"></div>
                 </div>
               </div>
+            </section>
+            <section class="home-section" id="admin-page" hidden>
+              <h2>Admin Panel</h2>
+              <p class="admin-note">Only approved administrators can access this panel.</p>
+              <div class="admin-card" aria-labelledby="admin-import-title">
+                <h3 id="admin-import-title">Import Asset from Rolimons</h3>
+                <label for="admin-import-input">Rolimons item link or asset ID</label>
+                <div class="admin-inline-fields">
+                  <input id="admin-import-input" type="text" autocomplete="off" placeholder="https://www.rolimons.com/item/68233678" />
+                  <button class="button-primary" id="admin-import-button" type="button">Submit</button>
+                </div>
+                <p class="settings-status" id="admin-import-status" role="status" aria-live="polite"></p>
+                <div class="admin-import-result" id="admin-import-result" hidden>
+                  <h4>Import code: <strong id="admin-import-code"></strong></h4>
+                  <ul id="admin-import-preview"></ul>
+                  <p class="admin-hint">Use this code in "Update Asset" below to put the item in the catalog.</p>
+                </div>
+              </div>
+              <div class="admin-card" aria-labelledby="admin-codes-title">
+                <h3 id="admin-codes-title">Generated Codes</h3>
+                <ul class="admin-codes-list" id="admin-codes-list"></ul>
+              </div>
+              <div class="admin-card" aria-labelledby="admin-update-title">
+                <h3 id="admin-update-title">Update Asset</h3>
+                <label for="admin-update-code">Import code</label>
+                <input id="admin-update-code" type="number" min="1" inputmode="numeric" placeholder="Code from the import above" />
+                <label for="admin-update-price">Robux of the asset</label>
+                <input id="admin-update-price" type="number" min="0" inputmode="numeric" placeholder="Price in Robux" />
+                <label for="admin-update-rap">RAP of this asset</label>
+                <input id="admin-update-rap" type="number" min="0" inputmode="numeric" placeholder="RAP" />
+                <label for="admin-update-stock">Stocks</label>
+                <input id="admin-update-stock" type="number" min="0" inputmode="numeric" placeholder="Copies available (empty = unlimited)" />
+                <label for="admin-update-category">Category</label>
+                <select id="admin-update-category">
+                  <option value="">Select a category</option>
+                  <option value="not_limited">Not Limited</option>
+                  <option value="limited">Limited</option>
+                  <option value="limited_unique">Limited Unique</option>
+                </select>
+                <div class="editor-actions">
+                  <button class="button-primary button-accent" id="admin-update-button" type="button">Submit</button>
+                </div>
+                <p class="settings-status" id="admin-update-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+            <section class="home-section" id="item-page" hidden>
+              <button class="button-ghost" id="item-back-button" type="button">← Back to Catalog</button>
+              <div class="item-detail" id="item-detail"></div>
             </section>
           </div>
         </div>
