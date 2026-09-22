@@ -1,4 +1,5 @@
 const path = require("node:path");
+const fs = require("node:fs");
 const crypto = require("node:crypto");
 const express = require("express");
 const cors = require("cors");
@@ -34,6 +35,18 @@ app.use((request, response, next) => {
   }
   if (request.path === "/" || request.path === "/index.html") {
     return response.sendFile(path.join(__dirname, "index.html"));
+  }
+  if (request.path.startsWith("/assets/")) {
+    let fileName;
+    try {
+      fileName = path.basename(decodeURIComponent(request.path));
+    } catch {
+      return next();
+    }
+    if (/^[A-Za-z0-9_-]+\.(png|jpe?g|webp|gif)$/i.test(fileName)) {
+      return response.sendFile(path.join(__dirname, "assets", fileName));
+    }
+    return next();
   }
   let fileName;
   try {
@@ -95,6 +108,7 @@ function normalizeUser(row) {
     blurb: row.blurb || "",
     preferences: row.preferences || {},
     robux: row.robux,
+    isAdmin: isAdminUsername(row.username),
     createdAt: row.created_at
   };
 }
@@ -126,6 +140,7 @@ async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS blurb TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS preferences JSONB NOT NULL DEFAULT '{}'::jsonb`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS robux INTEGER NOT NULL DEFAULT 500`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_key ON users (lower(username))`);
   await pool.query(`CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -170,6 +185,67 @@ async function migrate() {
     thumbnail_url TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS rap INTEGER NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS stock INTEGER`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS source_asset_id BIGINT`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS asset_imports (
+    code SERIAL PRIMARY KEY,
+    asset_id BIGINT NOT NULL,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    catalog_item_id INTEGER REFERENCES catalog_items(id) ON DELETE SET NULL
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS item_ownership (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    catalog_item_id INTEGER NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+    price_paid INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+}
+
+const ADMIN_USERNAMES = new Set(["marsargo", "3ymarr", "x_x", "roblox", "builderman"]);
+
+function isAdminUsername(username) {
+  return ADMIN_USERNAMES.has(String(username || "").trim().toLowerCase());
+}
+
+async function requireAdmin(request, response, next) {
+  if (!isAdminUsername(request.user.username)) {
+    return response.status(403).json({ error: "You do not have access to the admin panel." });
+  }
+  return next();
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const response = await fetch(url, {
+    ...options,
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", ...(options.headers || {}) },
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  if (!response.ok) {
+    throw new Error(`Request to ${url} failed with status ${response.status}`);
+  }
+  return response;
+}
+
+const ASSETS_DIR = path.join(__dirname, "assets");
+
+async function saveAssetImage(assetId, url) {
+  if (!/^https?:\/\//i.test(url || "")) {
+    return null;
+  }
+  fs.mkdirSync(ASSETS_DIR, { recursive: true });
+  const response = await fetchWithTimeout(url, {}, 30000);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer.length) {
+    return null;
+  }
+  const type = response.headers.get("content-type") || "";
+  const ext = type.includes("jpeg") ? "jpg" : type.includes("webp") ? "webp" : type.includes("gif") ? "gif" : "png";
+  const fileName = `${assetId}.${ext}`;
+  await fs.promises.writeFile(path.join(ASSETS_DIR, fileName), buffer);
+  return `/assets/${fileName}`;
 }
 
 app.post("/api/signup", async (request, response) => {
@@ -222,7 +298,6 @@ app.post("/api/login", async (request, response) => {
     if (!passwordMatches) {
       return response.status(401).json({ error: "Invalid username or password." });
     }
-    await pool.query("UPDATE users SET robux = 500 WHERE id = $1", [user.id]);
     await createSession(response, user.id);
     const fullUser = await pool.query(`${USER_SELECT} WHERE u.id = $1`, [user.id]);
     return response.json({ user: normalizeUser(fullUser.rows[0]) });
@@ -663,6 +738,335 @@ app.put("/api/me/password", requireAuth, async (request, response) => {
   } catch (error) {
     console.error(error);
     return response.status(500).json({ error: "Could not change your password." });
+  }
+});
+
+function parseAssetId(input) {
+  const text = String(input || "").trim();
+  const patterns = [
+    /rolimons\.com\/item\/(\d+)/i,
+    /roblox\.com\/[^/\s]*catalog\/(\d+)/i,
+    /roblox\.com\/library\/(\d+)/i,
+    /\/items\/(\d+)/i
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return match[1];
+    }
+  }
+  return /^\d+$/.test(text) ? text : null;
+}
+
+app.post("/api/admin/import", requireAuth, requireAdmin, async (request, response) => {
+  const assetId = parseAssetId(request.body && request.body.asset);
+  if (!assetId) {
+    return response.status(400).json({ error: "Enter a Rolimons item link or an asset ID." });
+  }
+
+  const data = {
+    assetId,
+    name: "",
+    description: "",
+    creatorName: "",
+    creatorType: "user",
+    isLimited: false,
+    isLimitedUnique: false,
+    price: 0,
+    rap: 0,
+    value: 0,
+    stock: null,
+    thumbnailUrl: "",
+    sources: { rolimons: false, roblox: false, thumbnail: false }
+  };
+
+  try {
+    const result = await fetchWithTimeout("https://api.rolimons.com/items/v1/itemdetails");
+    const payload = await result.json();
+    const entry = payload && payload.items ? payload.items[assetId] : null;
+    if (entry) {
+      data.sources.rolimons = true;
+      if (Array.isArray(entry)) {
+        // [name, acronym, rap, value, defaultValue, demand, trend, projected, hyped, rare]; -1 means "not available"
+        data.name = entry[0] || data.name;
+        data.rap = Math.max(Number(entry[2]) || 0, 0);
+        data.value = Math.max(Number(entry[3]) || 0, 0);
+      } else if (typeof entry === "object") {
+        data.name = entry.name || data.name;
+        data.rap = Math.max(Number(entry.rap) || 0, 0);
+        data.value = Math.max(Number(entry.value) || 0, 0);
+      }
+    }
+  } catch (error) {
+    console.error("Rolimons lookup failed:", error.message);
+  }
+
+  try {
+    const result = await fetchWithTimeout(`https://economy.roblox.com/v2/assets/${assetId}/details`);
+    const details = await result.json();
+    if (details && details.AssetId) {
+      data.sources.roblox = true;
+      data.name = details.Name || data.name;
+      data.description = details.Description || "";
+      data.creatorName = (details.Creator && details.Creator.Name) || "";
+      data.creatorType = details.Creator && String(details.Creator.CreatorType).toLowerCase() === "group" ? "group" : "user";
+      data.isLimited = Boolean(details.IsLimited);
+      data.isLimitedUnique = Boolean(details.IsLimitedUnique);
+      data.price = Number(details.PriceInRobux) || 0;
+      if (details.Remaining !== null && details.Remaining !== undefined) {
+        data.stock = Number(details.Remaining);
+      }
+    }
+  } catch (error) {
+    console.error("Roblox catalog lookup failed:", error.message);
+  }
+
+  try {
+    const result = await fetchWithTimeout(
+      `https://thumbnails.roblox.com/v1/assets?assetIds=${assetId}&size=420x420&format=Png&isCircular=false`
+    );
+    const payload = await result.json();
+    const entry = payload && Array.isArray(payload.data) ? payload.data[0] : null;
+    if (entry && entry.imageUrl) {
+      data.sources.thumbnail = true;
+      data.thumbnailUrl = entry.imageUrl;
+    }
+  } catch (error) {
+    console.error("Thumbnail lookup failed:", error.message);
+  }
+
+  if (data.stock === null) {
+    try {
+      const result = await fetchWithTimeout(`https://www.rolimons.com/item/${assetId}`, {}, 25000);
+      const html = await result.text();
+      const match = html.match(/"stock":\s*(-?\d+|null)/);
+      if (match && match[1] !== "null" && Number(match[1]) >= 0) {
+        data.stock = Number(match[1]);
+      }
+    } catch (error) {
+      console.error("Rolimons stock lookup failed:", error.message);
+    }
+  }
+
+  if (!data.name) {
+    data.name = `Asset ${assetId}`;
+  }
+
+  try {
+    const result = await pool.query(
+      "INSERT INTO asset_imports (asset_id, data) VALUES ($1, $2) RETURNING code",
+      [assetId, JSON.stringify(data)]
+    );
+    return response.status(201).json({ code: result.rows[0].code, data });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save the import." });
+  }
+});
+
+const ASSET_CATEGORY_VALUES = new Set(["not_limited", "limited", "limited_unique"]);
+
+app.post("/api/admin/update-asset", requireAuth, requireAdmin, async (request, response) => {
+  const body = request.body || {};
+  const code = Number(body.code);
+  if (!Number.isInteger(code) || code < 1 || code > 2147483647) {
+    return response.status(400).json({ error: "Enter the import code you received (the small number from the import step, not the asset ID)." });
+  }
+  const category = String(body.category || "");
+  if (!ASSET_CATEGORY_VALUES.has(category)) {
+    return response.status(400).json({ error: "Pick a category: Not Limited, Limited, or Limited Unique." });
+  }
+  const price = Number(body.price);
+  if (!Number.isFinite(price) || price < 0) {
+    return response.status(400).json({ error: "Robux price must be 0 or more." });
+  }
+  const rap = Number(body.rap);
+  if (!Number.isFinite(rap) || rap < 0) {
+    return response.status(400).json({ error: "RAP must be 0 or more." });
+  }
+  let stock = null;
+  const rawStock = body.stock;
+  if (rawStock !== "" && rawStock !== null && rawStock !== undefined) {
+    stock = Number(rawStock);
+    if (!Number.isInteger(stock) || stock < 0) {
+      return response.status(400).json({ error: "Stock must be a whole number, or left empty for unlimited." });
+    }
+  }
+
+  try {
+    const importResult = await pool.query("SELECT * FROM asset_imports WHERE code = $1", [code]);
+    const importRow = importResult.rows[0];
+    if (!importRow) {
+      return response.status(404).json({ error: "No import found with that code." });
+    }
+    if (importRow.catalog_item_id) {
+      return response.status(409).json({ error: "That code was already used to create an item." });
+    }
+
+    const data = importRow.data || {};
+    const isLimited = category !== "not_limited";
+    const isLimitedUnique = category === "limited_unique";
+    const itemResult = await pool.query(
+      `INSERT INTO catalog_items
+         (name, description, category, creator_name, creator_type, currency, price, rap, stock,
+          is_limited, is_limited_unique, is_new, is_available, thumbnail_url, source_asset_id)
+       VALUES ($1, $2, $3, $4, $5, 'robux', $6, $7, $8, $9, $10, true, $11, $12, $13)
+       RETURNING *`,
+      [
+        data.name || `Asset ${importRow.asset_id}`,
+        data.description || "",
+        isLimited ? "collectibles" : "accessories",
+        data.creatorName || "",
+        data.creatorType === "group" ? "group" : "user",
+        Math.floor(price),
+        Math.floor(rap),
+        stock,
+        isLimited,
+        isLimitedUnique,
+        stock === null || stock > 0,
+        data.thumbnailUrl || "",
+        importRow.asset_id
+      ]
+    );
+    await pool.query("UPDATE asset_imports SET catalog_item_id = $1 WHERE code = $2", [itemResult.rows[0].id, code]);
+    const row = itemResult.rows[0];
+    let thumbnailUrl = row.thumbnail_url;
+    if (thumbnailUrl.startsWith("http")) {
+      try {
+        const localUrl = await saveAssetImage(importRow.asset_id, thumbnailUrl);
+        if (localUrl) {
+          thumbnailUrl = localUrl;
+          await pool.query("UPDATE catalog_items SET thumbnail_url = $1 WHERE id = $2", [localUrl, row.id]);
+        }
+      } catch (error) {
+        console.error("Asset image download failed:", error.message);
+      }
+    }
+    return response.status(201).json({
+      item: { ...normalizeCatalogItem(row), thumbnailUrl, description: row.description, rap: row.rap, stock: row.stock }
+    });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not create the catalog item." });
+  }
+});
+
+app.get("/api/admin/imports", requireAuth, requireAdmin, async (request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT i.code, i.asset_id, i.data->>'name' AS name, i.catalog_item_id, i.created_at
+       FROM asset_imports i ORDER BY i.code DESC LIMIT 50`
+    );
+    return response.json({ imports: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load the import codes." });
+  }
+});
+
+app.get("/api/catalog/:id", requireAuth, async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid item is required." });
+  }
+  try {
+    const result = await pool.query(
+      `SELECT id, name, description, category, genre, creator_name, creator_type, currency, price,
+         rap, stock, is_limited, is_limited_unique, is_new, is_featured, is_available, sales_count,
+         thumbnail_url, source_asset_id, created_at
+       FROM catalog_items WHERE id = $1`,
+      [id]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return response.status(404).json({ error: "Item not found." });
+    }
+    const ownedResult = await pool.query(
+      "SELECT 1 FROM item_ownership WHERE user_id = $1 AND catalog_item_id = $2",
+      [request.user.id, id]
+    );
+    return response.json({
+      item: {
+        ...normalizeCatalogItem(row),
+        description: row.description,
+        rap: row.rap,
+        stock: row.stock,
+        sourceAssetId: row.source_asset_id,
+        isOwned: Boolean(ownedResult.rows[0])
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load the item." });
+  }
+});
+
+app.post("/api/catalog/:id/purchase", requireAuth, async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid item is required." });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const itemResult = await client.query(
+      "SELECT id, name, currency, price, stock, is_available FROM catalog_items WHERE id = $1 FOR UPDATE",
+      [id]
+    );
+    const item = itemResult.rows[0];
+    if (!item) {
+      await client.query("ROLLBACK");
+      return response.status(404).json({ error: "Item not found." });
+    }
+    if (!item.is_available || (item.stock !== null && item.stock <= 0)) {
+      await client.query("ROLLBACK");
+      return response.status(400).json({ error: "This item is off sale." });
+    }
+    const ownedResult = await client.query(
+      "SELECT 1 FROM item_ownership WHERE user_id = $1 AND catalog_item_id = $2",
+      [request.user.id, id]
+    );
+    if (ownedResult.rows[0]) {
+      await client.query("ROLLBACK");
+      return response.status(409).json({ error: "You already own this item." });
+    }
+    if (item.currency !== "robux") {
+      await client.query("ROLLBACK");
+      return response.status(400).json({ error: "This item cannot be bought with Robux." });
+    }
+    const userResult = await client.query("SELECT robux FROM users WHERE id = $1 FOR UPDATE", [request.user.id]);
+    if (userResult.rows[0].robux < item.price) {
+      await client.query("ROLLBACK");
+      return response.status(403).json({ error: "You do not have enough Robux." });
+    }
+
+    const newStock = item.stock === null ? null : item.stock - 1;
+    const nowOffSale = newStock !== null && newStock <= 0;
+    await client.query("UPDATE users SET robux = robux - $1 WHERE id = $2", [item.price, request.user.id]);
+    await client.query(
+      "UPDATE catalog_items SET sales_count = sales_count + 1, stock = $2, is_available = $3 WHERE id = $1",
+      [id, newStock, !nowOffSale]
+    );
+    await client.query(
+      "INSERT INTO item_ownership (user_id, catalog_item_id, price_paid) VALUES ($1, $2, $3)",
+      [request.user.id, id, item.price]
+    );
+    const balanceResult = await client.query("SELECT robux FROM users WHERE id = $1", [request.user.id]);
+    await client.query("COMMIT");
+    return response.json({
+      ok: true,
+      robux: balanceResult.rows[0].robux,
+      stock: newStock,
+      isAvailable: !nowOffSale,
+      pricePaid: item.price,
+      itemName: item.name
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(error);
+    return response.status(500).json({ error: "Could not complete the purchase." });
+  } finally {
+    client.release();
   }
 });
 
