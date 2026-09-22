@@ -11,8 +11,7 @@
 body { margin: 0; min-width: 320px; color: var(--text); background: #152124; font-family: Arial, Helvetica, sans-serif; }
 button, input, select { font: inherit; }
 button, a { cursor: pointer; }
-.page-shell { position: relative; min-height: 100vh; overflow: hidden; background-color: #132023; background-image: linear-gradient(#11191acc, #11191acc), url("https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=2200&q=85"); background-position: center; background-size: cover; animation: background-drift 24s ease-in-out infinite alternate; }
-.page-shell::before { content: ""; position: absolute; inset: -12%; opacity: .6; background: repeating-linear-gradient(118deg, transparent 0 100px, #4d805e22 102px 110px, transparent 112px 220px), linear-gradient(135deg, #143a3b88, transparent 35%, #54204566); background-size: auto, 180% 180%; mix-blend-mode: screen; animation: light-sweep 15s ease-in-out infinite alternate; }
+.page-shell { position: relative; min-height: 100vh; overflow: hidden; background-color: #132023; background-image: linear-gradient(#11191a59, #11191a59), url("login-bg.jpg"); background-position: center; background-size: cover; animation: background-drift 24s ease-in-out infinite alternate; }
 .topbar { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 7px 16px 0; }
 .wordmark { position: relative; display: block; line-height: 0; }
 .wordmark::before { position: absolute; z-index: -1; top: 50%; left: 50%; width: 86%; height: 72%; border-radius: 50%; background: #a94cae; content: ""; filter: blur(25px); opacity: .58; transform: translate(-50%, -50%); }
@@ -258,7 +257,6 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 @keyframes home-in { from { opacity: 0; transform: scale(1.02); } to { opacity: 1; transform: scale(1); } }
 @keyframes account-menu-in { from { opacity: 0; transform: translateY(-6px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes background-drift { from { background-position: 46% 48%; } to { background-position: 54% 52%; } }
-@keyframes light-sweep { from { background-position: 0 0, 0% 40%; opacity: .38; } to { background-position: 24px -18px, 100% 60%; opacity: .72; } }
 @keyframes settings-overlay-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes settings-panel-in { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @media (max-width: 500px) { .topbar { padding: 12px 12px 0; } .wordmark { font-size: 29px; } .login-button { min-width: 94px; padding: 7px 14px; font-size: 13px; } .signup-card, .login-card { margin-top: 10px; padding: 18px 20px 14px; } .settings-card select { max-width: none; } }
