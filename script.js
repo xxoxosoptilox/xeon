@@ -68,6 +68,11 @@ function displayUser(user) {
   userNameTargets.forEach((target) => { target.textContent = safeUsername; });
   const robuxText = safeUsername.toLowerCase() === "roblox" ? "∞" : String(user.robux ?? 0);
   robuxBalanceTargets.forEach((target) => { target.textContent = robuxText; });
+  adminNavButton.hidden = !user.isAdmin;
+  adminNavButton.style.display = user.isAdmin ? "" : "none";
+  if (!user.isAdmin) {
+    adminPage.hidden = true;
+  }
   applyTheme(user.preferences && user.preferences.theme);
   void loadHomeFriends();
 }
@@ -310,6 +315,8 @@ function showDefaultHomeContent() {
   searchResultsSection.hidden = true;
   friendsPage.hidden = true;
   catalogPage.hidden = true;
+  adminPage.hidden = true;
+  itemPage.hidden = true;
   homeDefaultContent.hidden = false;
 }
 
@@ -397,6 +404,8 @@ async function runPlayerSearch(rawQuery) {
   homeDefaultContent.hidden = true;
   friendsPage.hidden = true;
   catalogPage.hidden = true;
+  adminPage.hidden = true;
+  itemPage.hidden = true;
   searchResultsSection.hidden = false;
 
   try {
@@ -473,6 +482,8 @@ function showFriendsPage() {
   homeDefaultContent.hidden = true;
   searchResultsSection.hidden = true;
   catalogPage.hidden = true;
+  adminPage.hidden = true;
+  itemPage.hidden = true;
   friendsPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadFriendsPage();
@@ -725,7 +736,7 @@ const catalogState = {
   priceMode: "any",
   minPrice: "",
   maxPrice: "",
-  includeUnavailable: false,
+  includeUnavailable: true,
   q: "",
   sort: "relevance"
 };
@@ -757,6 +768,8 @@ function showCatalogPage() {
   homeDefaultContent.hidden = true;
   searchResultsSection.hidden = true;
   friendsPage.hidden = true;
+  adminPage.hidden = true;
+  itemPage.hidden = true;
   catalogPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadCatalog();
@@ -922,13 +935,21 @@ function createCatalogItemCard(item) {
     initial.textContent = (item.name || "?").trim().charAt(0) || "?";
     thumb.appendChild(initial);
   }
-  if (item.isNew) {
+  if (item.isNew || !item.isAvailable) {
     const badges = document.createElement("div");
     badges.className = "catalog-badges";
-    const badge = document.createElement("span");
-    badge.className = "catalog-badge";
-    badge.textContent = "New";
-    badges.appendChild(badge);
+    if (item.isNew) {
+      const badge = document.createElement("span");
+      badge.className = "catalog-badge";
+      badge.textContent = "New";
+      badges.appendChild(badge);
+    }
+    if (!item.isAvailable) {
+      const offSale = document.createElement("span");
+      offSale.className = "catalog-badge offsale";
+      offSale.textContent = "Off Sale";
+      badges.appendChild(offSale);
+    }
     thumb.appendChild(badges);
   }
 
@@ -983,6 +1004,7 @@ function createCatalogItemCard(item) {
   }
 
   card.append(thumb, body);
+  card.addEventListener("click", () => openItemPage(item.id));
   return card;
 }
 
@@ -1258,5 +1280,335 @@ themeSelect.addEventListener("change", async () => {
   currentUser = result.user;
   setStatus(themeStatus, "Theme saved.");
 });
+
+const adminNavButton = document.querySelector("#admin-nav-button");
+const adminPage = document.querySelector("#admin-page");
+const adminImportInput = document.querySelector("#admin-import-input");
+const adminImportButton = document.querySelector("#admin-import-button");
+const adminImportStatus = document.querySelector("#admin-import-status");
+const adminImportResult = document.querySelector("#admin-import-result");
+const adminImportCode = document.querySelector("#admin-import-code");
+const adminImportPreview = document.querySelector("#admin-import-preview");
+const adminUpdateCode = document.querySelector("#admin-update-code");
+const adminUpdatePrice = document.querySelector("#admin-update-price");
+const adminUpdateRap = document.querySelector("#admin-update-rap");
+const adminUpdateStock = document.querySelector("#admin-update-stock");
+const adminUpdateCategory = document.querySelector("#admin-update-category");
+const adminUpdateButton = document.querySelector("#admin-update-button");
+const adminUpdateStatus = document.querySelector("#admin-update-status");
+const adminCodesList = document.querySelector("#admin-codes-list");
+
+const itemPage = document.querySelector("#item-page");
+const itemDetail = document.querySelector("#item-detail");
+const itemBackButton = document.querySelector("#item-back-button");
+
+function showAdminPage() {
+  homeDefaultContent.hidden = true;
+  searchResultsSection.hidden = true;
+  friendsPage.hidden = true;
+  catalogPage.hidden = true;
+  itemPage.hidden = true;
+  adminPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadAdminCodes();
+}
+
+adminNavButton.addEventListener("click", showAdminPage);
+
+async function loadAdminCodes() {
+  const { ok, result } = await apiCall("GET", "/api/admin/imports");
+  adminCodesList.textContent = "";
+  if (!ok) {
+    const line = document.createElement("li");
+    line.textContent = result.error || "Could not load the import codes.";
+    adminCodesList.appendChild(line);
+    return;
+  }
+  const imports = result.imports || [];
+  if (!imports.length) {
+    const line = document.createElement("li");
+    line.className = "empty";
+    line.textContent = "No codes generated yet. Import an asset above to get one.";
+    adminCodesList.appendChild(line);
+    return;
+  }
+  imports.forEach((entry) => {
+    const line = document.createElement("li");
+    const code = document.createElement("strong");
+    code.textContent = `Code ${entry.code}`;
+    const name = document.createElement("span");
+    name.className = "code-name";
+    name.textContent = `${entry.name || "Unknown"} (asset ${entry.asset_id})`;
+    const state = document.createElement("span");
+    state.className = entry.catalog_item_id ? "code-state used" : "code-state";
+    state.textContent = entry.catalog_item_id ? `in catalog as item #${entry.catalog_item_id}` : "waiting for Update Asset";
+    line.append(code, name, state);
+    adminCodesList.appendChild(line);
+  });
+}
+
+function adminPreviewList(data) {
+  adminImportPreview.textContent = "";
+  const rows = [
+    ["Name", data.name],
+    ["Asset ID", data.assetId],
+    ["Creator", data.creatorName || "Unknown"],
+    ["RAP", data.rap],
+    ["Value", data.value],
+    ["Price (Roblox)", data.price],
+    ["Stock", data.stock === null || data.stock === undefined ? "Unknown" : data.stock],
+    ["Limited", data.isLimitedUnique ? "Limited Unique" : data.isLimited ? "Limited" : "Not Limited"]
+  ];
+  rows.forEach(([label, value]) => {
+    const line = document.createElement("li");
+    const strong = document.createElement("strong");
+    strong.textContent = `${label}: `;
+    line.append(strong, document.createTextNode(String(value ?? "")));
+    adminImportPreview.appendChild(line);
+  });
+}
+
+adminImportButton.addEventListener("click", async () => {
+  const asset = adminImportInput.value.trim();
+  if (!asset) {
+    setStatus(adminImportStatus, "Enter a Rolimons link or asset ID.", true);
+    return;
+  }
+  adminImportButton.disabled = true;
+  setStatus(adminImportStatus, "Fetching asset from Rolimons + Roblox...");
+  const { ok, result } = await apiCall("POST", "/api/admin/import", { asset });
+  adminImportButton.disabled = false;
+  if (!ok) {
+    adminImportResult.hidden = true;
+    setStatus(adminImportStatus, result.error || "Could not import that asset.", true);
+    return;
+  }
+  const sources = result.data.sources || {};
+  const sourceNote = [sources.rolimons ? "Rolimons" : null, sources.roblox ? "Roblox" : null].filter(Boolean).join(" + ");
+  setStatus(adminImportStatus, sourceNote ? `Imported from ${sourceNote}.` : "Imported with partial data. Fill in the fields below manually.");
+  adminImportCode.textContent = String(result.code);
+  adminPreviewList(result.data);
+  adminImportResult.hidden = false;
+  adminUpdateCode.value = String(result.code);
+  adminUpdatePrice.value = String(result.data.price || "");
+  adminUpdateRap.value = String(result.data.rap || "");
+  adminUpdateStock.value = result.data.stock === null || result.data.stock === undefined ? "" : String(result.data.stock);
+  adminUpdateCategory.value = result.data.isLimitedUnique ? "limited_unique" : result.data.isLimited ? "limited" : "not_limited";
+  void loadAdminCodes();
+});
+
+adminUpdateButton.addEventListener("click", async () => {
+  adminUpdateButton.disabled = true;
+  setStatus(adminUpdateStatus, "Creating catalog item...");
+  const payload = {
+    code: adminUpdateCode.value.trim(),
+    price: adminUpdatePrice.value.trim(),
+    rap: adminUpdateRap.value.trim(),
+    stock: adminUpdateStock.value.trim(),
+    category: adminUpdateCategory.value
+  };
+  const { ok, result } = await apiCall("POST", "/api/admin/update-asset", payload);
+  adminUpdateButton.disabled = false;
+  if (!ok) {
+    setStatus(adminUpdateStatus, result.error || "Could not update the asset.", true);
+    return;
+  }
+  setStatus(adminUpdateStatus, `"${result.item.name}" is now live in the catalog.`);
+  adminImportResult.hidden = true;
+  adminUpdateCode.value = "";
+  adminUpdatePrice.value = "";
+  adminUpdateRap.value = "";
+  adminUpdateStock.value = "";
+  adminUpdateCategory.value = "";
+  void loadAdminCodes();
+  openItemPage(result.item.id);
+});
+
+itemBackButton.addEventListener("click", showCatalogPage);
+
+function renderRobuxPrice(container, price) {
+  const icon = document.createElement("img");
+  icon.src = ROBUX_ICON;
+  icon.alt = "Robux";
+  icon.className = "robux-icon";
+  const amount = document.createElement("span");
+  amount.textContent = String(price);
+  container.append(icon, amount);
+}
+
+async function openItemPage(itemId) {
+  homeDefaultContent.hidden = true;
+  searchResultsSection.hidden = true;
+  friendsPage.hidden = true;
+  catalogPage.hidden = true;
+  adminPage.hidden = true;
+  itemPage.hidden = false;
+  itemDetail.textContent = "Loading...";
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+
+  const { ok, result } = await apiCall("GET", `/api/catalog/${itemId}`);
+  if (!ok) {
+    itemDetail.textContent = result.error || "Could not load the item.";
+    return;
+  }
+  renderItemDetail(result.item);
+}
+
+const ITEM_TYPE_LABELS = {
+  accessories: "Accessory",
+  collectibles: "Collectible",
+  clothing: "Clothing",
+  body_parts: "Body Part",
+  gear: "Gear",
+  community: "Community Creation"
+};
+const CATALOG_GENRE_LABELS = Object.fromEntries(CATALOG_GENRES);
+
+function renderItemDetail(item) {
+  itemDetail.textContent = "";
+
+  const page = document.createElement("div");
+  page.className = "item-page";
+
+  const thumb = document.createElement("div");
+  thumb.className = "item-page-thumb";
+  if (item.thumbnailUrl) {
+    const image = document.createElement("img");
+    image.src = item.thumbnailUrl;
+    image.alt = item.name;
+    thumb.appendChild(image);
+  } else {
+    const initial = document.createElement("span");
+    initial.className = "catalog-thumb-initial";
+    initial.textContent = (item.name || "?").trim().charAt(0) || "?";
+    thumb.appendChild(initial);
+  }
+  if (item.isLimited || item.isLimitedUnique) {
+    const ribbon = document.createElement("span");
+    ribbon.className = "item-ribbon";
+    ribbon.textContent = item.isLimitedUnique ? "LIMITED U" : "LIMITED";
+    thumb.appendChild(ribbon);
+  }
+  if (item.isNew) {
+    const ribbon = document.createElement("span");
+    ribbon.className = "item-ribbon new";
+    ribbon.textContent = "NEW";
+    thumb.appendChild(ribbon);
+  }
+
+  const info = document.createElement("div");
+  info.className = "item-page-info";
+
+  const name = document.createElement("h2");
+  name.className = "item-page-name";
+  name.textContent = item.name;
+
+  const creator = document.createElement("p");
+  creator.className = "item-page-creator";
+  creator.textContent = "By ";
+  const creatorName = document.createElement("span");
+  creatorName.className = "creator-name";
+  creatorName.textContent = item.creatorName || "Unknown";
+  creator.appendChild(creatorName);
+  if ((item.creatorName || "").toLowerCase() === "roblox") {
+    const verified = document.createElement("span");
+    verified.className = "verified";
+    verified.textContent = " ✔";
+    verified.title = "Verified";
+    creator.appendChild(verified);
+  }
+
+  const rows = document.createElement("dl");
+  rows.className = "item-page-rows";
+
+  const addRow = (label, text) => {
+    const row = document.createElement("div");
+    row.className = "item-row";
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const value = document.createElement("dd");
+    value.textContent = text;
+    row.append(term, value);
+    rows.appendChild(row);
+    return value;
+  };
+
+  const priceRow = document.createElement("div");
+  priceRow.className = "item-row";
+  const priceTerm = document.createElement("dt");
+  priceTerm.textContent = "Price";
+  const priceValue = document.createElement("dd");
+  priceValue.className = "item-price-value";
+  if (item.price === 0) {
+    priceValue.textContent = "Free";
+  } else {
+    renderRobuxPrice(priceValue, item.price);
+  }
+  const buyButton = document.createElement("button");
+  buyButton.type = "button";
+  buyButton.className = "item-buy-button";
+  priceRow.append(priceTerm, priceValue, buyButton);
+  rows.appendChild(priceRow);
+
+  addRow("Type", ITEM_TYPE_LABELS[item.category] || "Item");
+  addRow("Sales", String(item.salesCount ?? 0));
+  const stockValue = addRow("Stock", item.stock === null || item.stock === undefined ? "Unlimited" : String(item.stock));
+  if (item.rap > 0) {
+    addRow("RAP", String(item.rap));
+  }
+  addRow("Created", new Date(item.createdAt).toLocaleDateString("en-US"));
+  addRow("Genres", item.genre ? CATALOG_GENRE_LABELS[item.genre] || item.genre : "All");
+  addRow("Description", item.description || "No description.");
+
+  const status = document.createElement("p");
+  status.className = "settings-status item-buy-status";
+  status.setAttribute("role", "status");
+
+  const offSale = !item.isAvailable || (item.stock !== null && item.stock !== undefined && item.stock <= 0);
+  if (item.isOwned) {
+    buyButton.textContent = "Owned";
+    buyButton.disabled = true;
+  } else if (offSale) {
+    buyButton.textContent = "Off Sale";
+    buyButton.disabled = true;
+  } else {
+    buyButton.textContent = item.price === 0 ? "Get" : "Buy";
+    buyButton.addEventListener("click", async () => {
+      buyButton.disabled = true;
+      setStatus(status, "Processing purchase...");
+      const { ok, result } = await apiCall("POST", `/api/catalog/${item.id}/purchase`);
+      if (!ok) {
+        if (/already own/i.test(result.error || "")) {
+          buyButton.textContent = "Owned";
+        } else {
+          buyButton.disabled = false;
+        }
+        setStatus(status, result.error || "Could not complete the purchase.", true);
+        return;
+      }
+      setStatus(status, `You bought "${result.itemName}" for ${result.pricePaid} Robux.`);
+      if (currentUser) {
+        currentUser.robux = result.robux;
+        displayUser(currentUser);
+      }
+      stockValue.textContent = result.stock === null ? "Unlimited" : String(result.stock);
+      buyButton.textContent = "Owned";
+      buyButton.disabled = true;
+    });
+  }
+
+  info.append(name, creator, rows, status);
+  if (item.sourceAssetId) {
+    const rolimonsLink = document.createElement("a");
+    rolimonsLink.className = "item-rolimons-link";
+    rolimonsLink.href = `https://www.rolimons.com/item/${item.sourceAssetId}`;
+    rolimonsLink.target = "_blank";
+    rolimonsLink.rel = "noopener";
+    rolimonsLink.textContent = "View on Rolimons";
+    info.insertBefore(rolimonsLink, rows);
+  }
+  page.append(thumb, info);
+  itemDetail.appendChild(page);
+}
 
 void initializeSession();
