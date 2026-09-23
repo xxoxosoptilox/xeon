@@ -14,6 +14,11 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const SESSION_COOKIE = "xedra_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const isProduction = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
+const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID || "";
+const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || "";
+const PUBLIC_URL = String(process.env.PUBLIC_URL || `http://localhost:${port}`).replace(/\/+$/, "");
+const DISCORD_REDIRECT_URI = `${PUBLIC_URL}/api/discord/callback`;
+const discordLinkStates = new Map();
 
 const PUBLIC_FILES = new Set([
   "style.css",
@@ -97,7 +102,7 @@ async function createSession(response, userId) {
   setSessionCookie(response, token);
 }
 
-const USER_COLUMNS = `u.id, u.username, u.birthday::text AS birthday, u.gender, u.blurb, u.preferences, u.robux, u.created_at`;
+const USER_COLUMNS = `u.id, u.username, u.birthday::text AS birthday, u.gender, u.blurb, u.preferences, u.robux, u.discord_id, u.discord_username, u.created_at`;
 const USER_SELECT = `SELECT ${USER_COLUMNS} FROM users u`;
 
 function normalizeUser(row) {
@@ -111,6 +116,8 @@ function normalizeUser(row) {
     preferences: row.preferences || {},
     robux: row.robux,
     isAdmin: isAdminUsername(row.username),
+    discordId: row.discord_id || "",
+    discordUsername: row.discord_username || "",
     createdAt: row.created_at
   };
 }
@@ -142,6 +149,8 @@ async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS blurb TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS preferences JSONB NOT NULL DEFAULT '{}'::jsonb`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS robux INTEGER NOT NULL DEFAULT 500`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_id TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_username TEXT NOT NULL DEFAULT ''`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_key ON users (lower(username))`);
   await pool.query(`CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
@@ -992,6 +1001,79 @@ app.post("/api/admin/update-asset", requireAuth, requireAdmin, async (request, r
   } catch (error) {
     console.error(error);
     return response.status(500).json({ error: "Could not create the catalog item." });
+  }
+});
+
+app.get("/api/discord/connect", requireAuth, async (request, response) => {
+  if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
+    return response.status(400).json({ error: "Discord linking is not configured on this server yet." });
+  }
+  const state = crypto.randomBytes(16).toString("hex");
+  discordLinkStates.set(state, { userId: request.user.id, expires: Date.now() + 10 * 60 * 1000 });
+  const url = new URL("https://discord.com/oauth2/authorize");
+  url.searchParams.set("client_id", DISCORD_CLIENT_ID);
+  url.searchParams.set("redirect_uri", DISCORD_REDIRECT_URI);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", "identify");
+  url.searchParams.set("state", state);
+  return response.redirect(302, url.toString());
+});
+
+app.get("/api/discord/callback", async (request, response) => {
+  const { code, state } = request.query;
+  const entry = typeof state === "string" ? discordLinkStates.get(state) : undefined;
+  if (!entry || entry.expires < Date.now()) {
+    return response.redirect(302, "/?discord=error");
+  }
+  discordLinkStates.delete(state);
+  try {
+    const tokenResponse = await fetchWithTimeout(
+      "https://discord.com/api/oauth2/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: DISCORD_CLIENT_ID,
+          client_secret: DISCORD_CLIENT_SECRET,
+          grant_type: "authorization_code",
+          code: String(code || ""),
+          redirect_uri: DISCORD_REDIRECT_URI
+        }).toString()
+      },
+      20000
+    );
+    const tokenPayload = await tokenResponse.json();
+    if (!tokenResponse.ok || !tokenPayload.access_token) {
+      return response.redirect(302, "/?discord=error");
+    }
+    const discordResponse = await fetchWithTimeout(
+      "https://discord.com/api/users/@me",
+      { headers: { Authorization: `Bearer ${tokenPayload.access_token}` } },
+      20000
+    );
+    const discordUser = await discordResponse.json();
+    if (!discordResponse.ok || !discordUser.id) {
+      return response.redirect(302, "/?discord=error");
+    }
+    await pool.query("UPDATE users SET discord_id = $1, discord_username = $2 WHERE id = $3", [
+      String(discordUser.id),
+      discordUser.global_name || discordUser.username || "",
+      entry.userId
+    ]);
+    return response.redirect(302, "/?discord=linked");
+  } catch (error) {
+    console.error("Discord link failed:", error.message);
+    return response.redirect(302, "/?discord=error");
+  }
+});
+
+app.post("/api/discord/unlink", requireAuth, async (request, response) => {
+  try {
+    await pool.query("UPDATE users SET discord_id = '', discord_username = '' WHERE id = $1", [request.user.id]);
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not unlink your Discord account." });
   }
 });
 
