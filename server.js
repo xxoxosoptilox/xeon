@@ -18,7 +18,24 @@ const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID || "";
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || "";
 const PUBLIC_URL = String(process.env.PUBLIC_URL || `http://localhost:${port}`).replace(/\/+$/, "");
 const DISCORD_REDIRECT_URI = `${PUBLIC_URL}/api/discord/callback`;
-const discordLinkStates = new Map();
+const DISCORD_STATE_TTL_MS = 10 * 60 * 1000;
+
+function signDiscordState(userId) {
+  const payload = `${userId}:${Date.now()}`;
+  const sig = crypto.createHmac("sha256", DISCORD_CLIENT_SECRET).update(payload).digest("hex");
+  return `${payload}:${sig}`;
+}
+
+function verifyDiscordState(state) {
+  const parts = String(state || "").split(":");
+  if (parts.length !== 3) return null;
+  const [userId, ts, sig] = parts;
+  const payload = `${userId}:${ts}`;
+  const expected = crypto.createHmac("sha256", DISCORD_CLIENT_SECRET).update(payload).digest("hex");
+  if (sig !== expected) return null;
+  if (Date.now() - Number(ts) > DISCORD_STATE_TTL_MS) return null;
+  return userId;
+}
 
 const PUBLIC_FILES = new Set([
   "style.css",
@@ -1008,8 +1025,7 @@ app.get("/api/discord/connect", requireAuth, async (request, response) => {
   if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
     return response.status(400).json({ error: "Discord linking is not configured on this server yet." });
   }
-  const state = crypto.randomBytes(16).toString("hex");
-  discordLinkStates.set(state, { userId: request.user.id, expires: Date.now() + 10 * 60 * 1000 });
+  const state = signDiscordState(request.user.id);
   const url = new URL("https://discord.com/oauth2/authorize");
   url.searchParams.set("client_id", DISCORD_CLIENT_ID);
   url.searchParams.set("redirect_uri", DISCORD_REDIRECT_URI);
@@ -1021,11 +1037,10 @@ app.get("/api/discord/connect", requireAuth, async (request, response) => {
 
 app.get("/api/discord/callback", async (request, response) => {
   const { code, state } = request.query;
-  const entry = typeof state === "string" ? discordLinkStates.get(state) : undefined;
-  if (!entry || entry.expires < Date.now()) {
+  const userId = verifyDiscordState(state);
+  if (!userId) {
     return response.redirect(302, "/?discord=error");
   }
-  discordLinkStates.delete(state);
   try {
     const tokenResponse = await fetchWithTimeout(
       "https://discord.com/api/oauth2/token",
@@ -1058,7 +1073,7 @@ app.get("/api/discord/callback", async (request, response) => {
     await pool.query("UPDATE users SET discord_id = $1, discord_username = $2 WHERE id = $3", [
       String(discordUser.id),
       discordUser.global_name || discordUser.username || "",
-      entry.userId
+      userId
     ]);
     return response.redirect(302, "/?discord=linked");
   } catch (error) {
