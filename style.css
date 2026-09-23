@@ -318,3 +318,10 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 
 .item-rolimons-link { color: var(--link); font-size: 12px; font-weight: 700; text-decoration: none; }
 .item-rolimons-link:hover { text-decoration: underline; }
+
+.item-rolimons-link { color: var(--link); font-size: 12px; font-weight: 700; text-decoration: none; }
+.item-rolimons-link:hover { text-decoration: underline; }
+
+.discord-button { min-width: 74px; border: 1px solid #3a3d40; border-radius: 6px; padding: 6px 14px; color: #cfd3d4; background: #24272a; font-size: 12px; font-weight: 700; cursor: pointer; }
+.discord-button:hover { border-color: #a94cae; color: #fff; }
+.discord-actions { display: flex; gap: 8px; }
