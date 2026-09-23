@@ -1061,6 +1061,9 @@ app.get("/api/discord/callback", async (request, response) => {
     const tokenPayload = await tokenResponse.json();
     if (!tokenResponse.ok || !tokenPayload.access_token) {
       console.error("Discord token exchange failed:", tokenResponse.status, JSON.stringify(tokenPayload).slice(0, 200));
+      if (tokenResponse.status === 429) {
+        return response.redirect(302, "/?discord=ratelimit");
+      }
       return response.redirect(302, "/?discord=error");
     }
     const discordResponse = await fetchWithTimeout(
