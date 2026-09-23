@@ -38,6 +38,9 @@ const currentPasswordInput = document.querySelector("#current-password");
 const newPasswordInput = document.querySelector("#new-password");
 const confirmPasswordInput = document.querySelector("#confirm-password");
 const savePasswordButton = document.querySelector("#save-password");
+const discordAccountLabel = document.querySelector("#discord-account-label");
+const discordConnectButton = document.querySelector("#discord-connect-button");
+const discordUnlinkButton = document.querySelector("#discord-unlink-button");
 const accountStatus = document.querySelector("#account-status");
 const blurbInput = document.querySelector("#settings-blurb");
 const settingsMonth = document.querySelector("#settings-month");
@@ -1102,6 +1105,10 @@ function populateSettings(user) {
 
   usernameEditor.hidden = true;
   passwordEditor.hidden = true;
+  const discordName = user.discordId || user.discordUsername || "";
+  discordAccountLabel.textContent = discordName || "Not connected";
+  discordConnectButton.textContent = discordName ? "Change" : "Connect";
+  discordUnlinkButton.hidden = !discordName;
   setStatus(accountStatus, "");
   setStatus(personalStatus, "");
   setStatus(privacyStatus, "");
@@ -1642,3 +1649,45 @@ function renderItemDetail(item) {
 }
 
 void initializeSession();
+
+discordConnectButton.addEventListener("click", () => {
+  window.location.href = "/api/discord/connect";
+});
+
+discordUnlinkButton.addEventListener("click", async () => {
+  if (!window.confirm("Remove the Discord link from your account?")) {
+    return;
+  }
+  discordUnlinkButton.disabled = true;
+  const { ok, result } = await apiCall("POST", "/api/discord/unlink");
+  discordUnlinkButton.disabled = false;
+  if (!ok) {
+    setStatus(accountStatus, result.error || "Could not unlink your Discord account.", true);
+    return;
+  }
+  const user = await fetchMe();
+  if (user) {
+    currentUser = user;
+    populateSettings(user);
+  }
+  setStatus(accountStatus, "Discord account removed.");
+});
+
+function handleDiscordRedirectParam() {
+  const params = new URLSearchParams(window.location.search);
+  const discordParam = params.get("discord");
+  if (!discordParam) {
+    return;
+  }
+  params.delete("discord");
+  const query = params.toString();
+  window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  void openSettings().then(() => {
+    if (discordParam === "linked") {
+      setStatus(accountStatus, "Discord account connected.");
+    } else if (discordParam === "error") {
+      setStatus(accountStatus, "Could not connect your Discord account. Try again.", true);
+    }
+  });
+}
+handleDiscordRedirectParam();
