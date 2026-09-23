@@ -22,7 +22,8 @@ const PUBLIC_FILES = new Set([
   "noFilter.png",
   "Firefly_RemoveBackground.png",
   "Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png",
-  "login-bg.jpg"
+  "login-bg.jpg",
+  "favicon.ico"
 ]);
 
 app.use(cors());
@@ -991,6 +992,28 @@ app.post("/api/admin/update-asset", requireAuth, requireAdmin, async (request, r
   } catch (error) {
     console.error(error);
     return response.status(500).json({ error: "Could not create the catalog item." });
+  }
+});
+
+app.post("/api/admin/delete-item", requireAuth, requireAdmin, async (request, response) => {
+  const code = Number((request.body || {}).code);
+  if (!Number.isInteger(code) || code < 1 || code > 2147483647) {
+    return response.status(400).json({ error: "Enter the import code of the item you want to delete." });
+  }
+  try {
+    const importResult = await pool.query("SELECT catalog_item_id FROM asset_imports WHERE code = $1", [code]);
+    const importRow = importResult.rows[0];
+    if (!importRow) {
+      return response.status(404).json({ error: "No import found with that code." });
+    }
+    if (!importRow.catalog_item_id) {
+      return response.status(400).json({ error: "That code has no item in the catalog to delete." });
+    }
+    const deleted = await pool.query("DELETE FROM catalog_items WHERE id = $1 RETURNING name", [importRow.catalog_item_id]);
+    return response.json({ ok: true, name: deleted.rows[0].name });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not delete the item." });
   }
 });
 
