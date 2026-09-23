@@ -465,6 +465,7 @@ async function apiCall(method, path, body) {
 }
 
 const friendsNavButton = document.querySelector("#friends-nav-button");
+const supportNavButton = document.querySelector("#support-nav-button");
 const friendsBadge = document.querySelector("#friends-badge");
 const friendsPage = document.querySelector("#friends-page");
 const friendsStatus = document.querySelector("#friends-status");
@@ -490,6 +491,10 @@ function showFriendsPage() {
 }
 
 friendsNavButton.addEventListener("click", showFriendsPage);
+
+supportNavButton.addEventListener("click", () => {
+  window.open("https://discord.gg/VDHnCDtX2", "_blank", "noopener");
+});
 
 friendsTabs.forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -1296,6 +1301,9 @@ const adminUpdateStock = document.querySelector("#admin-update-stock");
 const adminUpdateCategory = document.querySelector("#admin-update-category");
 const adminUpdateButton = document.querySelector("#admin-update-button");
 const adminUpdateStatus = document.querySelector("#admin-update-status");
+const adminDeleteCode = document.querySelector("#admin-delete-code");
+const adminDeleteButton = document.querySelector("#admin-delete-button");
+const adminDeleteStatus = document.querySelector("#admin-delete-status");
 const adminCodesList = document.querySelector("#admin-codes-list");
 
 const itemPage = document.querySelector("#item-page");
@@ -1422,6 +1430,28 @@ adminUpdateButton.addEventListener("click", async () => {
   adminUpdateCategory.value = "";
   void loadAdminCodes();
   openItemPage(result.item.id);
+});
+
+adminDeleteButton.addEventListener("click", async () => {
+  const code = adminDeleteCode.value.trim();
+  if (!code) {
+    setStatus(adminDeleteStatus, "Enter the import code of the item you want to delete.", true);
+    return;
+  }
+  if (!window.confirm(`Delete the item made from code ${code} from the catalog?`)) {
+    return;
+  }
+  adminDeleteButton.disabled = true;
+  setStatus(adminDeleteStatus, "Deleting...");
+  const { ok, result } = await apiCall("POST", "/api/admin/delete-item", { code });
+  adminDeleteButton.disabled = false;
+  if (!ok) {
+    setStatus(adminDeleteStatus, result.error || "Could not delete the item.", true);
+    return;
+  }
+  setStatus(adminDeleteStatus, `"${result.name}" was removed from the catalog.`);
+  adminDeleteCode.value = "";
+  void loadAdminCodes();
 });
 
 itemBackButton.addEventListener("click", showCatalogPage);
