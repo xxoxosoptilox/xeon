@@ -1039,6 +1039,7 @@ app.get("/api/discord/callback", async (request, response) => {
   const { code, state } = request.query;
   const userId = verifyDiscordState(state);
   if (!userId) {
+    console.error("Discord callback: invalid state", { state: String(state || "").slice(0, 20) });
     return response.redirect(302, "/?discord=error");
   }
   try {
@@ -1059,6 +1060,7 @@ app.get("/api/discord/callback", async (request, response) => {
     );
     const tokenPayload = await tokenResponse.json();
     if (!tokenResponse.ok || !tokenPayload.access_token) {
+      console.error("Discord token exchange failed:", tokenResponse.status, JSON.stringify(tokenPayload).slice(0, 200));
       return response.redirect(302, "/?discord=error");
     }
     const discordResponse = await fetchWithTimeout(
@@ -1068,6 +1070,7 @@ app.get("/api/discord/callback", async (request, response) => {
     );
     const discordUser = await discordResponse.json();
     if (!discordResponse.ok || !discordUser.id) {
+      console.error("Discord user fetch failed:", discordResponse.status, JSON.stringify(discordUser).slice(0, 200));
       return response.redirect(302, "/?discord=error");
     }
     await pool.query("UPDATE users SET discord_id = $1, discord_username = $2 WHERE id = $3", [
@@ -1075,6 +1078,7 @@ app.get("/api/discord/callback", async (request, response) => {
       discordUser.global_name || discordUser.username || "",
       userId
     ]);
+    console.log("Discord linked successfully for user", userId, "discord:", discordUser.id);
     return response.redirect(302, "/?discord=linked");
   } catch (error) {
     console.error("Discord link failed:", error.message);
