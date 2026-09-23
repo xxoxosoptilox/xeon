@@ -30,7 +30,7 @@ app.use(express.json());
 
 // Only ever serve the whitelist below. Serving the whole project folder would
 // expose server.js, package.json, and any .env file that lands in this directory.
-app.use((request, response, next) => {
+app.use(async (request, response, next) => {
   if (request.method !== "GET") {
     return next();
   }
@@ -45,7 +45,7 @@ app.use((request, response, next) => {
       return next();
     }
     if (/^[A-Za-z0-9_-]+\.(png|jpe?g|webp|gif)$/i.test(fileName)) {
-      return response.sendFile(path.join(__dirname, "assets", fileName));
+      return serveAssetWithFallback(response, next, fileName);
     }
     return next();
   }
@@ -189,6 +189,7 @@ async function migrate() {
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS rap INTEGER NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS stock INTEGER`);
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS source_asset_id BIGINT`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS remote_thumbnail_url TEXT NOT NULL DEFAULT ''`);
   await pool.query(`CREATE TABLE IF NOT EXISTS asset_imports (
     code SERIAL PRIMARY KEY,
     asset_id BIGINT NOT NULL,
@@ -247,6 +248,46 @@ async function saveAssetImage(assetId, url) {
   const fileName = `${assetId}.${ext}`;
   await fs.promises.writeFile(path.join(ASSETS_DIR, fileName), buffer);
   return `/assets/${fileName}`;
+}
+
+async function fetchRobloxThumbnailUrl(assetId) {
+  const result = await fetchWithTimeout(
+    `https://thumbnails.roblox.com/v1/assets?assetIds=${assetId}&size=420x420&format=Png&isCircular=false`
+  );
+  const payload = await result.json();
+  const entry = payload && Array.isArray(payload.data) ? payload.data[0] : null;
+  return entry && entry.imageUrl ? entry.imageUrl : "";
+}
+
+// Hosting platforms wipe files written at runtime whenever they restart, so a
+// missing local photo falls back to the original Roblox CDN copy.
+async function serveAssetWithFallback(response, next, fileName) {
+  const localPath = path.join(ASSETS_DIR, fileName);
+  if (fs.existsSync(localPath)) {
+    return response.sendFile(localPath);
+  }
+  const assetId = Number.parseInt(fileName.split(".")[0], 10);
+  if (Number.isInteger(assetId)) {
+    try {
+      const stored = await pool.query(
+        "SELECT remote_thumbnail_url FROM catalog_items WHERE source_asset_id = $1 AND remote_thumbnail_url <> '' LIMIT 1",
+        [assetId]
+      );
+      let url = stored.rows[0] ? stored.rows[0].remote_thumbnail_url : "";
+      if (!url) {
+        url = await fetchRobloxThumbnailUrl(assetId);
+        if (url) {
+          await pool.query("UPDATE catalog_items SET remote_thumbnail_url = $1 WHERE source_asset_id = $2", [url, assetId]);
+        }
+      }
+      if (url) {
+        return response.redirect(302, url);
+      }
+    } catch (error) {
+      console.error("Asset fallback failed:", error.message);
+    }
+  }
+  return next();
 }
 
 app.post("/api/signup", async (request, response) => {
@@ -910,8 +951,8 @@ app.post("/api/admin/update-asset", requireAuth, requireAdmin, async (request, r
     const itemResult = await pool.query(
       `INSERT INTO catalog_items
          (name, description, category, creator_name, creator_type, currency, price, rap, stock,
-          is_limited, is_limited_unique, is_new, is_available, thumbnail_url, source_asset_id)
-       VALUES ($1, $2, $3, $4, $5, 'robux', $6, $7, $8, $9, $10, true, $11, $12, $13)
+          is_limited, is_limited_unique, is_new, is_available, thumbnail_url, source_asset_id, remote_thumbnail_url)
+       VALUES ($1, $2, $3, $4, $5, 'robux', $6, $7, $8, $9, $10, true, $11, $12, $13, $14)
        RETURNING *`,
       [
         data.name || `Asset ${importRow.asset_id}`,
@@ -926,7 +967,8 @@ app.post("/api/admin/update-asset", requireAuth, requireAdmin, async (request, r
         isLimitedUnique,
         stock === null || stock > 0,
         data.thumbnailUrl || "",
-        importRow.asset_id
+        importRow.asset_id,
+        data.thumbnailUrl || ""
       ]
     );
     await pool.query("UPDATE asset_imports SET catalog_item_id = $1 WHERE code = $2", [itemResult.rows[0].id, code]);
