@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Roblox Revival sign-up preview" />
     <title>Sign Up | Revival</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
@@ -72,7 +73,7 @@
         <div class="home-body">
           <aside class="side-nav" aria-label="Account navigation">
             <div class="side-profile"><img class="avatar-large" src="noFilter.png" alt="" /><strong data-user-name>User</strong></div>
-            <button class="active" id="home-nav-button">⌂ <span>Home</span></button><button type="button" id="catalog-nav-button">▦ <span>Catalog</span></button><button>♙ <span>Profile</span></button><button>▤ <span>Messages</span></button><button id="friends-nav-button">♧ <span>Friends</span><b id="friends-badge" hidden></b></button><button>♙ <span>Avatar</span></button><button>▣ <span>Inventory</span></button><button>◁ <span>Trade</span></button><button>♧ <span>Communities</span></button><button>▤ <span>Blog</span></button><button>☆ <span>Official Store</span></button><button>▣ <span>Buy Gift Cards</span></button>
+            <button class="active" id="home-nav-button">⌂ <span>Home</span></button><button type="button" id="catalog-nav-button">▦ <span>Catalog</span></button><button>♙ <span>Profile</span></button><button>▤ <span>Messages</span></button><button id="friends-nav-button">♧ <span>Friends</span><b id="friends-badge" hidden></b></button><button>♙ <span>Avatar</span></button><button>▣ <span>Inventory</span></button><button>◁ <span>Trade</span></button><button>♧ <span>Communities</span></button><button type="button" id="support-nav-button">✉ <span>Support</span></button>
             <button class="premium-button">Get Premium</button>
             <button class="admin-panel-button" id="admin-nav-button" type="button" hidden>Admin Panel</button>
           </aside>
@@ -222,6 +223,16 @@
                   <button class="button-primary button-accent" id="admin-update-button" type="button">Submit</button>
                 </div>
                 <p class="settings-status" id="admin-update-status" role="status" aria-live="polite"></p>
+              </div>
+              <div class="admin-card" aria-labelledby="admin-delete-title">
+                <h3 id="admin-delete-title">Delete Item</h3>
+                <label for="admin-delete-code">Import code</label>
+                <div class="admin-inline-fields">
+                  <input id="admin-delete-code" type="number" min="1" inputmode="numeric" placeholder="Code of the item to remove" />
+                  <button class="button-primary" id="admin-delete-button" type="button">Delete</button>
+                </div>
+                <p class="admin-hint">Removes the item from the catalog. The code stays in Generated Codes so you can re-create the item later.</p>
+                <p class="settings-status" id="admin-delete-status" role="status" aria-live="polite"></p>
               </div>
             </section>
             <section class="home-section" id="item-page" hidden>
