@@ -1687,6 +1687,8 @@ function handleDiscordRedirectParam() {
       setStatus(accountStatus, "Discord account connected.");
     } else if (discordParam === "error") {
       setStatus(accountStatus, "Could not connect your Discord account. Try again.", true);
+    } else if (discordParam === "ratelimit") {
+      setStatus(accountStatus, "Discord is rate limiting. Please wait a few minutes and try again.", true);
     }
   });
 }
