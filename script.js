@@ -874,6 +874,46 @@ catalogSort.addEventListener("change", () => {
   void loadCatalog();
 });
 
+const catalogCodeButton = document.querySelector("#catalog-code-button");
+const catalogCodeRow = document.querySelector("#catalog-code-row");
+const catalogCodeInput = document.querySelector("#catalog-code-input");
+const catalogCodeGo = document.querySelector("#catalog-code-go");
+const catalogCodeStatus = document.querySelector("#catalog-code-status");
+
+catalogCodeButton.addEventListener("click", () => {
+  const open = catalogCodeRow.hidden;
+  catalogCodeRow.hidden = !open;
+  catalogCodeButton.setAttribute("aria-expanded", String(open));
+  if (open) {
+    catalogCodeInput.focus();
+  }
+});
+
+async function followCatalogCode() {
+  const code = catalogCodeInput.value.trim();
+  if (!/^\d+$/.test(code)) {
+    setStatus(catalogCodeStatus, "Item codes are numbers only.", true);
+    catalogCodeStatus.hidden = false;
+    return;
+  }
+  const { ok, result } = await apiCall("GET", `/api/catalog/by-code/${encodeURIComponent(code)}`);
+  if (!ok || !result.itemId) {
+    setStatus(catalogCodeStatus, result.error || "No item matches that code.", true);
+    catalogCodeStatus.hidden = false;
+    return;
+  }
+  catalogCodeStatus.hidden = true;
+  await openItemPage(result.itemId);
+}
+
+catalogCodeGo.addEventListener("click", () => void followCatalogCode());
+catalogCodeInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void followCatalogCode();
+  }
+});
+
 function hasActiveCatalogFilters() {
   return catalogState.category !== "all"
     || Boolean(catalogState.genre)
@@ -1310,6 +1350,7 @@ const adminUpdateButton = document.querySelector("#admin-update-button");
 const adminUpdateStatus = document.querySelector("#admin-update-status");
 const adminDeleteCode = document.querySelector("#admin-delete-code");
 const adminDeleteButton = document.querySelector("#admin-delete-button");
+const adminRefundButton = document.querySelector("#admin-refund-button");
 const adminDeleteStatus = document.querySelector("#admin-delete-status");
 const adminCodesList = document.querySelector("#admin-codes-list");
 
@@ -1439,27 +1480,36 @@ adminUpdateButton.addEventListener("click", async () => {
   openItemPage(result.item.id);
 });
 
-adminDeleteButton.addEventListener("click", async () => {
+async function removeItemByCode(refund) {
   const code = adminDeleteCode.value.trim();
   if (!code) {
     setStatus(adminDeleteStatus, "Enter the import code of the item you want to delete.", true);
     return;
   }
-  if (!window.confirm(`Delete the item made from code ${code} from the catalog?`)) {
+  const question = refund
+    ? `Delete the item made from code ${code} and refund every buyer the Robux they spent?`
+    : `Delete the item made from code ${code}? The code is removed too.`;
+  if (!window.confirm(question)) {
     return;
   }
   adminDeleteButton.disabled = true;
-  setStatus(adminDeleteStatus, "Deleting...");
-  const { ok, result } = await apiCall("POST", "/api/admin/delete-item", { code });
+  adminRefundButton.disabled = true;
+  setStatus(adminDeleteStatus, refund ? "Refunding and deleting..." : "Deleting...");
+  const { ok, result } = await apiCall("POST", refund ? "/api/admin/delete-and-refund" : "/api/admin/delete-item", { code });
   adminDeleteButton.disabled = false;
+  adminRefundButton.disabled = false;
   if (!ok) {
     setStatus(adminDeleteStatus, result.error || "Could not delete the item.", true);
     return;
   }
-  setStatus(adminDeleteStatus, `"${result.name}" was removed from the catalog.`);
+  const removed = result.name ? `"${result.name}" and code ${code} were removed.` : `Code ${code} was removed.`;
+  setStatus(adminDeleteStatus, refund ? `${removed} ${result.refunded} buyer(s) got ${result.totalRobux} Robux back.` : removed);
   adminDeleteCode.value = "";
   void loadAdminCodes();
-});
+}
+
+adminDeleteButton.addEventListener("click", () => void removeItemByCode(false));
+adminRefundButton.addEventListener("click", () => void removeItemByCode(true));
 
 itemBackButton.addEventListener("click", showCatalogPage);
 
