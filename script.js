@@ -320,6 +320,7 @@ function showDefaultHomeContent() {
   catalogPage.hidden = true;
   adminPage.hidden = true;
   itemPage.hidden = true;
+  createPage.hidden = true;
   homeDefaultContent.hidden = false;
 }
 
@@ -488,6 +489,7 @@ function showFriendsPage() {
   catalogPage.hidden = true;
   adminPage.hidden = true;
   itemPage.hidden = true;
+  createPage.hidden = true;
   friendsPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadFriendsPage();
@@ -778,6 +780,7 @@ function showCatalogPage() {
   friendsPage.hidden = true;
   adminPage.hidden = true;
   itemPage.hidden = true;
+  createPage.hidden = true;
   catalogPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadCatalog();
@@ -1364,6 +1367,7 @@ function showAdminPage() {
   friendsPage.hidden = true;
   catalogPage.hidden = true;
   itemPage.hidden = true;
+  createPage.hidden = true;
   adminPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadAdminCodes();
@@ -1513,6 +1517,178 @@ adminRefundButton.addEventListener("click", () => void removeItemByCode(true));
 
 itemBackButton.addEventListener("click", showCatalogPage);
 
+const topCreateButton = document.querySelector("#top-create-button");
+const createPage = document.querySelector("#create-page");
+const createTabs = Array.from(document.querySelectorAll("#create-tabs .create-tab"));
+const createTypes = Array.from(document.querySelectorAll("#create-types .create-type"));
+const createNewButton = document.querySelector("#create-new-button");
+const createPaneTitle = document.querySelector("#create-pane-title");
+const createPaneEmpty = document.querySelector("#create-pane-empty");
+const createFileInput = document.querySelector("#create-file-input");
+const createList = document.querySelector("#create-list");
+const createStatus = document.querySelector("#create-status");
+
+let createTab = "mine";
+let createType = createTypes[0];
+let myCreations = [];
+
+const ROW_GLYPHS = { place: "▣", model: "▤", audio: "♫" };
+
+function creationName(creation) {
+  return String(creation.filename || "creation").replace(/\.[A-Za-z0-9]{1,5}$/, "");
+}
+
+function closeCreateMenus() {
+  createList.querySelectorAll(".create-row-menu").forEach((menu) => {
+    menu.hidden = true;
+  });
+}
+
+function renderCreatePane() {
+  const plural = createType.dataset.plural;
+  const kind = createType.dataset.kind || "";
+  createNewButton.textContent = `Create New ${createType.dataset.singular}`;
+  createNewButton.disabled = createTab === "group" || !kind;
+  createPaneTitle.textContent = plural;
+  createFileInput.accept = kind ? createType.dataset.exts : "";
+
+  const mine = kind && createTab === "mine" ? myCreations.filter((item) => item.kind === kind) : [];
+  createList.textContent = "";
+  mine.forEach((creation) => {
+    const name = creationName(creation);
+
+    const line = document.createElement("li");
+
+    const thumb = document.createElement("div");
+    thumb.className = "create-thumb";
+    thumb.textContent = ROW_GLYPHS[creation.kind] || "▣";
+
+    const info = document.createElement("div");
+    info.className = "create-row-info";
+    const title = document.createElement("strong");
+    title.className = "create-row-title";
+    title.textContent = name;
+    info.appendChild(title);
+    if (creation.kind === "place") {
+      const startPlace = document.createElement("span");
+      startPlace.className = "create-row-meta";
+      startPlace.textContent = `Start Place:  ${name}`;
+      info.appendChild(startPlace);
+    }
+    const privacy = document.createElement("span");
+    privacy.className = "create-row-meta";
+    privacy.textContent = "Public";
+    info.appendChild(privacy);
+
+    const settingsWrap = document.createElement("div");
+    settingsWrap.className = "create-row-settings-wrap";
+    const gear = document.createElement("button");
+    gear.type = "button";
+    gear.className = "create-row-settings";
+    gear.setAttribute("aria-label", `Settings for ${name}`);
+    gear.setAttribute("aria-expanded", "false");
+    gear.textContent = "⚙ ▾";
+    const menu = document.createElement("div");
+    menu.className = "create-row-menu";
+    menu.hidden = true;
+    const download = document.createElement("a");
+    download.href = `/api/create/download/${creation.id}`;
+    download.textContent = "Download";
+    menu.appendChild(download);
+    gear.addEventListener("click", () => {
+      const wasOpen = !menu.hidden;
+      closeCreateMenus();
+      menu.hidden = wasOpen;
+      gear.setAttribute("aria-expanded", wasOpen ? "false" : "true");
+    });
+    settingsWrap.append(gear, menu);
+
+    line.append(thumb, info, settingsWrap);
+    createList.appendChild(line);
+  });
+
+  let emptyText = "";
+  if (createTab === "group") {
+    emptyText = "You aren't in any groups.";
+  } else if (!kind) {
+    emptyText = `Uploading ${plural.toLowerCase()} isn't supported yet.`;
+  } else if (!mine.length) {
+    emptyText = `You haven't created any ${plural.toLowerCase()}.`;
+  }
+  createPaneEmpty.textContent = emptyText;
+  createPaneEmpty.hidden = !emptyText;
+}
+
+async function loadMyCreations() {
+  const { ok, result } = await apiCall("GET", "/api/create/mine");
+  myCreations = ok ? result.creations || [] : [];
+  renderCreatePane();
+}
+
+createTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    createTabs.forEach((item) => item.classList.toggle("active", item === tab));
+    createTab = tab.dataset.pane;
+    renderCreatePane();
+  });
+});
+
+createTypes.forEach((type) => {
+  type.addEventListener("click", () => {
+    createTypes.forEach((item) => item.classList.toggle("active", item === type));
+    createType = type;
+    renderCreatePane();
+  });
+});
+
+createNewButton.addEventListener("click", () => {
+  if (!createNewButton.disabled) {
+    createFileInput.click();
+  }
+});
+
+createFileInput.addEventListener("change", async () => {
+  const file = createFileInput.files[0];
+  createFileInput.value = "";
+  if (!file) {
+    return;
+  }
+  createNewButton.disabled = true;
+  setStatus(createStatus, "");
+  const query = new URLSearchParams({ kind: createType.dataset.kind, name: file.name });
+  try {
+    const response = await fetch(`/api/create/upload?${query}`, {
+      method: "POST",
+      credentials: "same-origin",
+      body: file
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStatus(createStatus, result.error || "Could not upload the file.", true);
+      return;
+    }
+    await loadMyCreations();
+  } catch {
+    setStatus(createStatus, "The upload was rejected or the server went away.", true);
+  } finally {
+    renderCreatePane();
+  }
+});
+
+function showCreatePage() {
+  homeDefaultContent.hidden = true;
+  searchResultsSection.hidden = true;
+  friendsPage.hidden = true;
+  catalogPage.hidden = true;
+  adminPage.hidden = true;
+  itemPage.hidden = true;
+  createPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadMyCreations();
+}
+
+topCreateButton.addEventListener("click", showCreatePage);
+
 function renderRobuxPrice(container, price) {
   const icon = document.createElement("img");
   icon.src = ROBUX_ICON;
@@ -1530,6 +1706,7 @@ async function openItemPage(itemId) {
   catalogPage.hidden = true;
   adminPage.hidden = true;
   itemPage.hidden = false;
+  createPage.hidden = true;
   itemDetail.textContent = "Loading...";
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
 
