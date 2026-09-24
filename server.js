@@ -968,36 +968,47 @@ app.post("/api/admin/update-asset", requireAuth, requireAdmin, async (request, r
     if (!importRow) {
       return response.status(404).json({ error: "No import found with that code." });
     }
-    if (importRow.catalog_item_id) {
-      return response.status(409).json({ error: "That code was already used to create an item." });
-    }
 
     const data = importRow.data || {};
     const isLimited = category !== "not_limited";
     const isLimitedUnique = category === "limited_unique";
-    const itemResult = await pool.query(
-      `INSERT INTO catalog_items
-         (name, description, category, creator_name, creator_type, currency, price, rap, stock,
-          is_limited, is_limited_unique, is_new, is_available, thumbnail_url, source_asset_id, remote_thumbnail_url)
-       VALUES ($1, $2, $3, $4, $5, 'robux', $6, $7, $8, $9, $10, true, $11, $12, $13, $14)
-       RETURNING *`,
-      [
-        data.name || `Asset ${importRow.asset_id}`,
-        data.description || "",
-        isLimited ? "collectibles" : "accessories",
-        data.creatorName || "",
-        data.creatorType === "group" ? "group" : "user",
-        Math.floor(price),
-        Math.floor(rap),
-        stock,
-        isLimited,
-        isLimitedUnique,
-        stock === null || stock > 0,
-        data.thumbnailUrl || "",
-        importRow.asset_id,
-        data.thumbnailUrl || ""
-      ]
-    );
+    const values = [
+      data.name || `Asset ${importRow.asset_id}`,
+      data.description || "",
+      isLimited ? "collectibles" : "accessories",
+      data.creatorName || "",
+      data.creatorType === "group" ? "group" : "user",
+      Math.floor(price),
+      Math.floor(rap),
+      stock,
+      isLimited,
+      isLimitedUnique,
+      stock === null || stock > 0,
+      data.thumbnailUrl || "",
+      importRow.asset_id,
+      data.thumbnailUrl || ""
+    ];
+    // Codes never expire: re-submitting one refreshes the item it already made.
+    const itemResult = importRow.catalog_item_id
+      ? await pool.query(
+          `UPDATE catalog_items SET
+             name = $1, description = $2, category = $3, creator_name = $4, creator_type = $5,
+             currency = 'robux', price = $6, rap = $7, stock = $8, is_limited = $9,
+             is_limited_unique = $10, is_available = $11,
+             thumbnail_url = COALESCE(NULLIF($12, ''), thumbnail_url),
+             source_asset_id = $13,
+             remote_thumbnail_url = COALESCE(NULLIF($14, ''), remote_thumbnail_url)
+           WHERE id = $15 RETURNING *`,
+          [...values, importRow.catalog_item_id]
+        )
+      : await pool.query(
+          `INSERT INTO catalog_items
+             (name, description, category, creator_name, creator_type, currency, price, rap, stock,
+              is_limited, is_limited_unique, is_new, is_available, thumbnail_url, source_asset_id, remote_thumbnail_url)
+           VALUES ($1, $2, $3, $4, $5, 'robux', $6, $7, $8, $9, $10, true, $11, $12, $13, $14)
+           RETURNING *`,
+          values
+        );
     await pool.query("UPDATE asset_imports SET catalog_item_id = $1 WHERE code = $2", [itemResult.rows[0].id, code]);
     const row = itemResult.rows[0];
     let thumbnailUrl = row.thumbnail_url;
@@ -1104,14 +1115,66 @@ app.post("/api/admin/delete-item", requireAuth, requireAdmin, async (request, re
     if (!importRow) {
       return response.status(404).json({ error: "No import found with that code." });
     }
-    if (!importRow.catalog_item_id) {
-      return response.status(400).json({ error: "That code has no item in the catalog to delete." });
+    let name = null;
+    if (importRow.catalog_item_id) {
+      const deleted = await pool.query("DELETE FROM catalog_items WHERE id = $1 RETURNING name", [importRow.catalog_item_id]);
+      name = deleted.rows[0] ? deleted.rows[0].name : null;
     }
-    const deleted = await pool.query("DELETE FROM catalog_items WHERE id = $1 RETURNING name", [importRow.catalog_item_id]);
-    return response.json({ ok: true, name: deleted.rows[0].name });
+    await pool.query("DELETE FROM asset_imports WHERE code = $1", [code]);
+    return response.json({ ok: true, name });
   } catch (error) {
     console.error(error);
     return response.status(500).json({ error: "Could not delete the item." });
+  }
+});
+
+app.post("/api/admin/delete-and-refund", requireAuth, requireAdmin, async (request, response) => {
+  const code = Number((request.body || {}).code);
+  if (!Number.isInteger(code) || code < 1 || code > 2147483647) {
+    return response.status(400).json({ error: "Enter the import code of the item you want to delete." });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const importResult = await client.query("SELECT catalog_item_id FROM asset_imports WHERE code = $1", [code]);
+    const importRow = importResult.rows[0];
+    if (!importRow) {
+      await client.query("ROLLBACK");
+      return response.status(404).json({ error: "No import found with that code." });
+    }
+    if (!importRow.catalog_item_id) {
+      await client.query("ROLLBACK");
+      return response.status(400).json({ error: "That code has no item in the catalog, so there is nothing to refund. Use Delete instead." });
+    }
+    // Locking the item row makes any in-flight purchase wait, so no buyer can be
+    // added after the refunds are totalled but before the ownership rows cascade away.
+    const itemResult = await client.query("SELECT name FROM catalog_items WHERE id = $1 FOR UPDATE", [importRow.catalog_item_id]);
+    const item = itemResult.rows[0];
+    if (!item) {
+      await client.query("ROLLBACK");
+      return response.status(404).json({ error: "The item made from that code is no longer in the catalog." });
+    }
+    const refundResult = await client.query(
+      `UPDATE users u SET robux = u.robux + r.total
+       FROM (
+         SELECT user_id, SUM(price_paid)::int AS total
+         FROM item_ownership WHERE catalog_item_id = $1 GROUP BY user_id
+       ) r
+       WHERE u.id = r.user_id
+       RETURNING u.username, r.total`,
+      [importRow.catalog_item_id]
+    );
+    await client.query("DELETE FROM catalog_items WHERE id = $1", [importRow.catalog_item_id]);
+    await client.query("DELETE FROM asset_imports WHERE code = $1", [code]);
+    await client.query("COMMIT");
+    const totalRobux = refundResult.rows.reduce((sum, row) => sum + row.total, 0);
+    return response.json({ ok: true, name: item.name, refunded: refundResult.rows.length, totalRobux });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(error);
+    return response.status(500).json({ error: "Could not refund and delete the item." });
+  } finally {
+    client.release();
   }
 });
 
@@ -1125,6 +1188,24 @@ app.get("/api/admin/imports", requireAuth, requireAdmin, async (request, respons
   } catch (error) {
     console.error(error);
     return response.status(500).json({ error: "Could not load the import codes." });
+  }
+});
+
+app.get("/api/catalog/by-code/:code", requireAuth, async (request, response) => {
+  const code = Number(request.params.code);
+  if (!Number.isInteger(code) || code < 1 || code > 2147483647) {
+    return response.status(400).json({ error: "Enter a valid item code." });
+  }
+  try {
+    const result = await pool.query("SELECT catalog_item_id FROM asset_imports WHERE code = $1", [code]);
+    const itemId = result.rows[0] ? result.rows[0].catalog_item_id : null;
+    if (!itemId) {
+      return response.status(404).json({ error: "No item matches that code." });
+    }
+    return response.json({ itemId });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not look up that code." });
   }
 });
 
