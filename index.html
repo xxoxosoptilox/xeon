@@ -175,7 +175,13 @@
                       <option value="price_asc">Price (Low to High)</option>
                       <option value="price_desc">Price (High to Low)</option>
                     </select>
+                    <button class="catalog-code-button" id="catalog-code-button" type="button" aria-expanded="false">Write Code</button>
                   </div>
+                  <div class="catalog-code-row" id="catalog-code-row" hidden>
+                    <input id="catalog-code-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Type an item code" />
+                    <button class="catalog-go" id="catalog-code-go" type="button">Go</button>
+                  </div>
+                  <p class="catalog-code-status" id="catalog-code-status" role="status" aria-live="polite" hidden></p>
                   <p class="catalog-count" id="catalog-count"></p>
                   <div class="catalog-grid" id="catalog-grid"></div>
                 </div>
@@ -223,6 +229,7 @@
                   <button class="button-primary button-accent" id="admin-update-button" type="button">Submit</button>
                 </div>
                 <p class="settings-status" id="admin-update-status" role="status" aria-live="polite"></p>
+                <p class="admin-hint">Codes never expire. Submitting a code again updates the item it already created.</p>
               </div>
               <div class="admin-card" aria-labelledby="admin-delete-title">
                 <h3 id="admin-delete-title">Delete Item</h3>
@@ -230,8 +237,9 @@
                 <div class="admin-inline-fields">
                   <input id="admin-delete-code" type="number" min="1" inputmode="numeric" placeholder="Code of the item to remove" />
                   <button class="button-primary" id="admin-delete-button" type="button">Delete</button>
+                  <button class="button-primary" id="admin-refund-button" type="button">Delete &amp; Refund</button>
                 </div>
-                <p class="admin-hint">Removes the item from the catalog. The code stays in Generated Codes so you can re-create the item later.</p>
+                <p class="admin-hint">Delete removes the item and its code. Delete &amp; Refund also returns every buyer the exact Robux they spent.</p>
                 <p class="settings-status" id="admin-delete-status" role="status" aria-live="polite"></p>
               </div>
             </section>
