@@ -66,7 +66,7 @@
         <header class="home-topbar">
           <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Hide sidebar" aria-expanded="true">☰</button>
           <img src="xedra.png" alt="XEDRA" class="home-logo" />
-          <nav class="home-nav" aria-label="Main navigation"><button>Discover</button><button type="button" id="top-marketplace-button">Marketplace</button><button>Create</button><button>Robux</button></nav>
+          <nav class="home-nav" aria-label="Main navigation"><button>Discover</button><button type="button" id="top-marketplace-button">Marketplace</button><button type="button" id="top-create-button" disabled title="Coming soon">Create</button><button>Robux</button></nav>
           <label class="search-box"><span aria-hidden="true">⌕</span><input type="search" id="player-search" placeholder="Search" /></label>
           <div class="profile-chip"><img class="avatar-dot" src="noFilter.png" alt="" /><strong data-user-name>User</strong><span class="robux-count"><img class="robux-icon" src="Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png" alt="" /> <span data-robux-balance>0</span></span><button class="settings-button" id="settings-button" type="button" aria-label="Settings" aria-expanded="false"><img src="Firefly_RemoveBackground.png" alt="" /></button><div class="account-menu" id="account-menu" hidden><button type="button" id="open-settings-button">Settings</button><button type="button" id="logout-button">Log out</button></div></div>
         </header>
@@ -241,6 +241,33 @@
                 </div>
                 <p class="admin-hint">Delete removes the item and its code. Delete &amp; Refund also returns every buyer the exact Robux they spent.</p>
                 <p class="settings-status" id="admin-delete-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+            <section class="home-section" id="create-page" hidden>
+              <div class="create-tabs" id="create-tabs">
+                <button class="create-tab active" type="button" data-pane="mine">My Creations</button>
+                <button class="create-tab" type="button" data-pane="group">Group Creations</button>
+              </div>
+              <div class="create-body">
+                <div class="create-types" id="create-types">
+                  <button class="create-type active" type="button" data-singular="Game" data-plural="Games" data-kind="place" data-exts=".rbxl">Games</button>
+                  <button class="create-type" type="button" data-singular="Model" data-plural="Models" data-kind="model" data-exts=".rbxm">Models</button>
+                  <button class="create-type" type="button" data-singular="Badge" data-plural="Badges">Badges</button>
+                  <button class="create-type" type="button" data-singular="Pass" data-plural="Passes">Passes</button>
+                  <button class="create-type" type="button" data-singular="Audio" data-plural="Audio" data-kind="audio" data-exts=".ogg,.mp3">Audio</button>
+                  <button class="create-type" type="button" data-singular="User Ad" data-plural="User Ads">User Ads</button>
+                  <button class="create-type" type="button" data-singular="Shirt" data-plural="Shirts">Shirts</button>
+                  <button class="create-type" type="button" data-singular="T-Shirt" data-plural="T-Shirts">T-Shirts</button>
+                  <button class="create-type" type="button" data-singular="Pants" data-plural="Pants">Pants</button>
+                </div>
+                <div class="create-pane">
+                  <button class="create-new-button" id="create-new-button" type="button">Create New Game</button>
+                  <input id="create-file-input" type="file" hidden />
+                  <h2 id="create-pane-title">Games</h2>
+                  <p class="create-empty" id="create-pane-empty">You haven't created any games.</p>
+                  <ul class="create-list" id="create-list"></ul>
+                  <p class="settings-status" id="create-status" role="status" aria-live="polite"></p>
+                </div>
               </div>
             </section>
             <section class="home-section" id="item-page" hidden>
