@@ -1043,21 +1043,17 @@ app.get("/api/discord/callback", async (request, response) => {
     return response.redirect(302, "/?discord=error");
   }
   try {
-    const tokenResponse = await fetchWithTimeout(
-      "https://discord.com/api/oauth2/token",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: DISCORD_CLIENT_ID,
-          client_secret: DISCORD_CLIENT_SECRET,
-          grant_type: "authorization_code",
-          code: String(code || ""),
-          redirect_uri: DISCORD_REDIRECT_URI
-        }).toString()
-      },
-      20000
-    );
+    const tokenResponse = await fetch("https://discord.com/api/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: DISCORD_CLIENT_ID,
+        client_secret: DISCORD_CLIENT_SECRET,
+        grant_type: "authorization_code",
+        code: String(code || ""),
+        redirect_uri: DISCORD_REDIRECT_URI
+      }).toString()
+    });
     const tokenPayload = await tokenResponse.json();
     if (!tokenResponse.ok || !tokenPayload.access_token) {
       console.error("Discord token exchange failed:", tokenResponse.status, JSON.stringify(tokenPayload).slice(0, 200));
@@ -1066,11 +1062,9 @@ app.get("/api/discord/callback", async (request, response) => {
       }
       return response.redirect(302, "/?discord=error");
     }
-    const discordResponse = await fetchWithTimeout(
-      "https://discord.com/api/users/@me",
-      { headers: { Authorization: `Bearer ${tokenPayload.access_token}` } },
-      20000
-    );
+    const discordResponse = await fetch("https://discord.com/api/users/@me", {
+      headers: { Authorization: `Bearer ${tokenPayload.access_token}` }
+    });
     const discordUser = await discordResponse.json();
     if (!discordResponse.ok || !discordUser.id) {
       console.error("Discord user fetch failed:", discordResponse.status, JSON.stringify(discordUser).slice(0, 200));
