@@ -231,6 +231,12 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 .catalog-toolbar input { flex: 1; min-height: 30px; padding: 5px 10px; background: var(--hs-input); color: inherit; font-size: 13px; }
 .catalog-toolbar select { width: 190px; min-height: 30px; background: var(--hs-input); color: inherit; font-size: 12px; }
 .catalog-count { margin: 0 0 12px; color: var(--hs-muted); font-size: 12px; }
+.catalog-code-button { min-width: 96px; min-height: 30px; border: 1px solid var(--hs-border); border-radius: 5px; padding: 0 12px; color: inherit; background: var(--hs-panel); font-size: 12px; font-weight: 800; }
+.catalog-code-button:hover { border-color: var(--hs-accent); background: var(--hs-hover); }
+.catalog-code-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.catalog-code-row input { flex: 1; min-height: 30px; padding: 5px 10px; background: var(--hs-input); color: inherit; font-size: 13px; }
+.catalog-code-status { margin: 0 0 12px; color: var(--hs-muted); font-size: 12px; }
+.catalog-code-status.error { color: #ff7b7b; }
 .catalog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; }
 .catalog-item { overflow: hidden; border: 1px solid var(--hs-border); border-radius: 6px; background: var(--hs-panel); }
 .catalog-thumb { position: relative; display: grid; place-items: center; aspect-ratio: 1; background: var(--hs-hover); }
