@@ -377,6 +377,15 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 .admin-codes-list .code-state { color: var(--hs-muted); }
 .admin-codes-list .code-state.used { color: #3ba53b; }
 
+.admin-pending-list { margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.admin-pending-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--hs-border); }
+.admin-pending-list li:last-child { border-bottom: 0; }
+.admin-pending-list li.empty { color: var(--hs-muted); border-bottom: 0; }
+.pending-asset-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.pending-asset-info strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending-asset-meta { color: var(--hs-muted); font-size: 11px; }
+.pending-asset-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
 .item-rolimons-link { color: var(--link); font-size: 12px; font-weight: 700; text-decoration: none; }
 .item-rolimons-link:hover { text-decoration: underline; }
 
