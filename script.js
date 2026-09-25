@@ -78,6 +78,7 @@ function displayUser(user) {
   }
   applyTheme(user.preferences && user.preferences.theme);
   void loadHomeFriends();
+  void loadRecommended();
 }
 
 function openHomeScreen() {
@@ -491,6 +492,7 @@ const friendsPage = document.querySelector("#friends-page");
 const friendsStatus = document.querySelector("#friends-status");
 const homeFriendsCount = document.querySelector("#home-friends-count");
 const homeFriendsRow = document.querySelector("#home-friends-row");
+const recommendRow = document.querySelector("#recommend-row");
 const friendsTabs = Array.from(document.querySelectorAll(".friends-tab"));
 const friendsPanels = {
   requests: document.querySelector("#friends-panel-requests"),
@@ -607,6 +609,33 @@ async function loadHomeFriends() {
   if (ok) {
     updateFriendsChrome(result);
   }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+async function loadRecommended() {
+  if (!recommendRow) return;
+  recommendRow.innerHTML = "";
+  const { ok, result } = await apiCall("GET", "/api/create/recommended");
+  if (!ok || !result.creations) return;
+  const games = result.creations.filter((game) => game.thumbnail_type);
+  if (!games.length) {
+    recommendRow.innerHTML = '<p class="search-empty">No games yet.</p>';
+    return;
+  }
+  games.forEach((game) => {
+    const card = document.createElement("div");
+    card.className = "recommend-card";
+    const thumbUrl = `/api/create/${game.id}/thumbnail`;
+    card.innerHTML =
+      `<div class="recommend-thumb"><img src="${thumbUrl}" alt="" /></div>` +
+      `<div class="recommend-title">${escapeHtml(game.name)}</div>`;
+    recommendRow.appendChild(card);
+  });
 }
 
 async function respondToRequest(requestId, action) {
