@@ -1408,6 +1408,7 @@ const adminUpdateStock = document.querySelector("#admin-update-stock");
 const adminUpdateCategory = document.querySelector("#admin-update-category");
 const adminUpdateButton = document.querySelector("#admin-update-button");
 const adminUpdateStatus = document.querySelector("#admin-update-status");
+const adminUpdateAssetType = document.querySelector("#admin-update-asset-type");
 const adminDeleteCode = document.querySelector("#admin-delete-code");
 const adminDeleteButton = document.querySelector("#admin-delete-button");
 const adminRefundButton = document.querySelector("#admin-refund-button");
@@ -1612,7 +1613,8 @@ adminUpdateButton.addEventListener("click", async () => {
     price: adminUpdatePrice.value.trim(),
     rap: adminUpdateRap.value.trim(),
     stock: adminUpdateStock.value.trim(),
-    category: adminUpdateCategory.value
+    category: adminUpdateCategory.value,
+    assetType: adminUpdateAssetType.value
   };
   const { ok, result } = await apiCall("POST", "/api/admin/update-asset", payload);
   adminUpdateButton.disabled = false;
@@ -1627,6 +1629,7 @@ adminUpdateButton.addEventListener("click", async () => {
   adminUpdateRap.value = "";
   adminUpdateStock.value = "";
   adminUpdateCategory.value = "";
+  adminUpdateAssetType.value = "";
   void loadAdminCodes();
   openItemPage(result.item.id);
 });
@@ -2432,7 +2435,8 @@ scalingSliders.forEach((slider) => {
   });
 });
 
-let avatarScene, avatarCamera, avatarRenderer, avatarCharacter, avatarAnimationId;
+let avatarScene, avatarCamera, avatarRenderer, avatarCharacter, avatarAnimationId, avatarControls;
+const equippedItems = new Map();
 
 function initAvatar3D(modelUrl = null) {
   const container = document.querySelector(".avatar-preview-box");
@@ -2447,6 +2451,10 @@ function initAvatar3D(modelUrl = null) {
     container.removeChild(avatarRenderer.domElement);
     avatarRenderer.dispose();
     cancelAnimationFrame(avatarAnimationId);
+    if (avatarControls) {
+      avatarControls.dispose();
+      avatarControls = null;
+    }
   }
 
   const width = container.clientWidth;
@@ -2463,6 +2471,17 @@ function initAvatar3D(modelUrl = null) {
   avatarRenderer.setPixelRatio(window.devicePixelRatio);
   container.appendChild(avatarRenderer.domElement);
 
+  const OrbitControls = THREE.OrbitControls || window.OrbitControls;
+  if (OrbitControls) {
+    avatarControls = new OrbitControls(avatarCamera, avatarRenderer.domElement);
+    avatarControls.enableDamping = true;
+    avatarControls.dampingFactor = 0.08;
+    avatarControls.minDistance = 3;
+    avatarControls.maxDistance = 15;
+    avatarControls.target.set(0, 0.5, 0);
+    avatarControls.update();
+  }
+
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
   avatarScene.add(ambientLight);
 
@@ -2471,6 +2490,9 @@ function initAvatar3D(modelUrl = null) {
   avatarScene.add(directionalLight);
 
   avatarCharacter = new THREE.Group();
+  const equippedGroup = new THREE.Group();
+  equippedGroup.name = "equipped-items";
+  avatarScene.add(equippedGroup);
 
   const GLTFLoader = THREE.GLTFLoader || window.GLTFLoader;
 
@@ -2534,8 +2556,8 @@ function initAvatar3D(modelUrl = null) {
 
   function animate() {
     avatarAnimationId = requestAnimationFrame(animate);
-    if (avatarCharacter) {
-      avatarCharacter.rotation.y += 0.01;
+    if (avatarControls) {
+      avatarControls.update();
     }
     avatarRenderer.render(avatarScene, avatarCamera);
   }
@@ -2547,6 +2569,9 @@ function initAvatar3D(modelUrl = null) {
     avatarCamera.aspect = newWidth / newHeight;
     avatarCamera.updateProjectionMatrix();
     avatarRenderer.setSize(newWidth, newHeight);
+    if (avatarControls) {
+      avatarControls.update();
+    }
   });
 }
 
@@ -2566,6 +2591,7 @@ function showAvatarPage() {
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   renderAvatarSubtabs("recent");
   void loadOwnedItems();
+  void loadEquippedItems();
   setTimeout(() => initAvatar3D("character.glb"), 100);
 }
 
@@ -2580,6 +2606,10 @@ async function loadOwnedItems() {
     for (const item of result.items) {
       const card = document.createElement("div");
       card.className = "avatar-item-card";
+      card.dataset.itemId = item.catalog_item_id;
+      if (equippedItems.has(item.catalog_item_id)) {
+        card.classList.add("selected");
+      }
       const thumb = document.createElement("div");
       thumb.className = "avatar-item-thumb";
       if (item.thumbnail_url) {
@@ -2594,10 +2624,252 @@ async function loadOwnedItems() {
       name.textContent = item.name || "Unnamed";
       name.title = item.name || "";
       card.append(thumb, name);
+      card.addEventListener("click", () => toggleEquipItem(item, card));
       avatarItemsGrid.appendChild(card);
     }
   } catch {
     // silently fail
+  }
+}
+
+async function loadEquippedItems() {
+  equippedItems.clear();
+  const equippedGroup = avatarScene ? avatarScene.getObjectByName("equipped-items") : null;
+  if (equippedGroup) {
+    const childrenToRemove = [];
+    equippedGroup.children.forEach((child) => {
+      childrenToRemove.push(child);
+    });
+    childrenToRemove.forEach((child) => {
+      equippedGroup.remove(child);
+      child.geometry.dispose();
+      if (child.material.map) {
+        child.material.map.dispose();
+      }
+      child.material.dispose();
+    });
+  }
+  try {
+    const response = await fetch(`${apiBase}/api/avatar/equipped`, { credentials: "same-origin" });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(result.items)) {
+      return;
+    }
+    for (const item of result.items) {
+      const catalogItemId = item.catalog_item_id;
+      equippedItems.set(catalogItemId, {
+        id: catalogItemId,
+        name: item.name,
+        category: item.category,
+        assetType: item.asset_type,
+        thumbnailUrl: item.thumbnail_url
+      });
+      const card = document.querySelector(`.avatar-item-card[data-item-id="${catalogItemId}"]`);
+      if (card) {
+        card.classList.add("selected");
+      }
+      addEquippedModel({
+        id: catalogItemId,
+        name: item.name,
+        category: item.category,
+        assetType: item.asset_type,
+        thumbnailUrl: item.thumbnail_url
+      });
+    }
+  } catch {
+    // silently fail
+  }
+}
+
+async function toggleEquipItem(item, card) {
+  const catalogItemId = item.catalog_item_id || item.id;
+  const isSelected = card.classList.toggle("selected");
+  const itemData = {
+    id: catalogItemId,
+    name: item.name,
+    category: item.category,
+    assetType: item.asset_type,
+    thumbnailUrl: item.thumbnail_url
+  };
+  console.log("Toggle equip:", { isSelected, itemData });
+  if (isSelected) {
+    equippedItems.set(catalogItemId, itemData);
+    console.log("Avatar character exists:", !!avatarCharacter);
+    addEquippedModel(itemData);
+    await fetch(`${apiBase}/api/avatar/equip`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ catalogItemId })
+    }).catch(() => {});
+  } else {
+    equippedItems.delete(catalogItemId);
+    removeEquippedModel(catalogItemId);
+    await fetch(`${apiBase}/api/avatar/unequip`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ catalogItemId })
+    }).catch(() => {});
+  }
+}
+
+function getItemColor(name) {
+  let hash = 0;
+  for (let i = 0; i < (name || "").length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const colors = [0xa94cae, 0x2ecc40, 0xe74c3c, 0x3498db, 0xf39c12, 0x9b59b6, 0x1abc9c, 0xe67e22];
+  return colors[Math.abs(hash) % colors.length];
+}
+
+function addEquippedModel(item) {
+  if (!avatarCharacter) return;
+  const equippedGroup = avatarScene.getObjectByName("equipped-items");
+  if (!equippedGroup) return;
+
+  let assetType = item.assetType;
+  const category = (item.category || "").toLowerCase();
+  const thumbnailUrl = item.thumbnailUrl;
+  let mesh;
+
+  console.log("Equipping item:", { id: item.id, name: item.name, assetType, category, thumbnailUrl });
+
+  // Fallback: infer asset type from category if not set
+  if (!assetType && assetType !== 0) {
+    if (category === "faces") {
+      assetType = 18;
+    } else if (category === "hats" || category === "accessories") {
+      assetType = 8;
+    } else if (category === "clothing") {
+      assetType = 11;
+    }
+    console.log("Inferred assetType from category:", assetType);
+  }
+
+  // Create texture from item thumbnail if available
+  let material;
+  if (thumbnailUrl) {
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.setCrossOrigin("anonymous");
+    const texture = textureLoader.load(
+      thumbnailUrl,
+      (loadedTexture) => {
+        console.log("Texture loaded for:", item.name);
+        loadedTexture.needsUpdate = true;
+        if (mesh && mesh.material) {
+          mesh.material.map = loadedTexture;
+          mesh.material.needsUpdate = true;
+        }
+      },
+      undefined,
+      (error) => {
+        console.warn("Failed to load texture for item:", item.name, error);
+      }
+    );
+    material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      alphaTest: 0.1,
+      side: THREE.DoubleSide
+    });
+  } else {
+    console.warn("No thumbnail URL for item:", item.name);
+    const color = getItemColor(item.name);
+    material = new THREE.MeshLambertMaterial({ color });
+  }
+
+  // Character is scaled 1.5x and positioned at y=-1
+  // Head center is approximately at y=1.5 in local space = 1.5*1.5-1 = 1.25 in world space
+  const scale = 1.5;
+  const charY = -1;
+  
+  // Roblox AvatarAssetType IDs for precise placement (in world coordinates)
+  if (assetType === 18) {
+    // Face - front of head
+    const geo = new THREE.PlaneGeometry(1.2, 1.0);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(0, 1.35, 0.52);
+  } else if (assetType === 8 || assetType === 41) {
+    // Hat or HairAccessory - top of head
+    const geo = new THREE.BoxGeometry(0.8 * scale, 0.4 * scale, 0.8 * scale);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(0, 1.25 + 0.6 * scale, 0);
+  } else if (assetType === 42) {
+    // FaceAccessory - front of face (glasses, mask)
+    const geo = new THREE.PlaneGeometry(0.7 * scale, 0.35 * scale);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(0, 1.25, 0.4 * scale);
+  } else if (assetType === 43) {
+    // NeckAccessory - neck area
+    const geo = new THREE.PlaneGeometry(0.5 * scale, 0.3 * scale);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(0, 1.25 - 0.4 * scale, 0.25 * scale);
+  } else if (assetType === 44) {
+    // ShoulderAccessory - shoulders
+    const geo = new THREE.PlaneGeometry(0.4 * scale, 0.4 * scale);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(0.7 * scale, 1.25 - 0.3 * scale, 0);
+  } else if (assetType === 45) {
+    // FrontAccessory - front of torso
+    const geo = new THREE.PlaneGeometry(0.9 * scale, 0.7 * scale);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(0, 0.2, 0.4 * scale);
+  } else if (assetType === 46) {
+    // BackAccessory - back
+    const geo = new THREE.PlaneGeometry(0.9 * scale, 0.9 * scale);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(0, 0.3, -0.4 * scale);
+    mesh.rotation.y = Math.PI;
+  } else if (assetType === 47) {
+    // WaistAccessory - waist
+    const geo = new THREE.PlaneGeometry(1.0 * scale, 0.35 * scale);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(0, -0.2, 0.35 * scale);
+  } else if (assetType === 11) {
+    // Shirt - torso
+    const geo = new THREE.BoxGeometry(1.1 * scale, 1.3 * scale, 0.7 * scale);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(0, 0.2, 0);
+  } else if (assetType === 12) {
+    // Pants - legs
+    const geo = new THREE.BoxGeometry(1.0 * scale, 1.2 * scale, 0.6 * scale);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(0, -0.6, 0);
+  } else if (category === "accessories" || category === "gear") {
+    const geo = new THREE.SphereGeometry(0.35 * scale, 16, 16);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(0, 1.25 + 0.5 * scale, 0);
+  } else if (category === "clothing") {
+    const geo = new THREE.BoxGeometry(1.1 * scale, 1.3 * scale, 0.7 * scale);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(0, 0.2, 0);
+  } else if (category === "body_parts") {
+    const geo = new THREE.CylinderGeometry(0.25 * scale, 0.25 * scale, 1.2 * scale, 12);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(0.9 * scale, 0, 0);
+  } else {
+    const geo = new THREE.OctahedronGeometry(0.3 * scale);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(1.2 * scale, 0.5, 0);
+  }
+
+  mesh.name = `equip-${item.id}`;
+  equippedGroup.add(mesh);
+  console.log("Added equipped mesh:", mesh.name, "at position:", mesh.position, "with assetType:", assetType);
+}
+
+function removeEquippedModel(itemId) {
+  const equippedGroup = avatarScene ? avatarScene.getObjectByName("equipped-items") : null;
+  if (!equippedGroup) return;
+  const mesh = equippedGroup.getObjectByName(`equip-${itemId}`);
+  if (mesh) {
+    equippedGroup.remove(mesh);
+    mesh.geometry.dispose();
+    if (mesh.material.map) {
+      mesh.material.map.dispose();
+    }
+    mesh.material.dispose();
   }
 }
 
