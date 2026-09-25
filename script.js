@@ -76,6 +76,12 @@ function displayUser(user) {
   if (!user.isAdmin) {
     adminPage.hidden = true;
   }
+  const isAvatarUser = (user.username || "").toLowerCase() === "marsargo";
+  avatarNavButton.hidden = !isAvatarUser;
+  avatarNavButton.style.display = isAvatarUser ? "" : "none";
+  if (!isAvatarUser) {
+    avatarPage.hidden = true;
+  }
   applyTheme(user.preferences && user.preferences.theme);
   void loadHomeFriends();
   void loadRecommended();
@@ -323,6 +329,7 @@ function showDefaultHomeContent() {
   itemPage.hidden = true;
   createPage.hidden = true;
   configurePage.hidden = true;
+  avatarPage.hidden = true;
   homeDefaultContent.hidden = false;
 }
 
@@ -412,6 +419,7 @@ async function runPlayerSearch(rawQuery) {
   catalogPage.hidden = true;
   adminPage.hidden = true;
   itemPage.hidden = true;
+  avatarPage.hidden = true;
   searchResultsSection.hidden = false;
 
   try {
@@ -509,6 +517,7 @@ function showFriendsPage() {
   itemPage.hidden = true;
   createPage.hidden = true;
   configurePage.hidden = true;
+  avatarPage.hidden = true;
   friendsPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadFriendsPage();
@@ -828,6 +837,7 @@ function showCatalogPage() {
   itemPage.hidden = true;
   createPage.hidden = true;
   configurePage.hidden = true;
+  avatarPage.hidden = true;
   catalogPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadCatalog();
@@ -1418,6 +1428,7 @@ function showAdminPage() {
   itemPage.hidden = true;
   createPage.hidden = true;
   configurePage.hidden = true;
+  avatarPage.hidden = true;
   adminPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadAdminCodes();
@@ -1829,6 +1840,7 @@ function showCreatePage() {
   adminPage.hidden = true;
   itemPage.hidden = true;
   configurePage.hidden = true;
+  avatarPage.hidden = true;
   createPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadMyCreations();
@@ -1965,6 +1977,7 @@ function openConfigurePage(creation) {
   adminPage.hidden = true;
   itemPage.hidden = true;
   createPage.hidden = true;
+  avatarPage.hidden = true;
   configurePage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -2108,6 +2121,7 @@ async function openItemPage(itemId) {
   friendsPage.hidden = true;
   catalogPage.hidden = true;
   adminPage.hidden = true;
+  avatarPage.hidden = true;
   itemPage.hidden = false;
   createPage.hidden = true;
   configurePage.hidden = true;
@@ -2324,3 +2338,148 @@ function handleDiscordRedirectParam() {
   });
 }
 handleDiscordRedirectParam();
+
+/* Avatar Editor */
+const avatarNavButton = document.querySelector("#avatar-nav-button");
+const avatarPage = document.querySelector("#avatar-page");
+const avatarTabs = Array.from(document.querySelectorAll(".avatar-tab"));
+const avatarSubtabsContainer = document.querySelector("#avatar-subtabs");
+const avatarItemsGrid = document.querySelector("#avatar-items-grid");
+const avatarOutfitsPane = document.querySelector("#avatar-outfits-pane");
+const avatarRigBtns = Array.from(document.querySelectorAll(".avatar-rig-btn"));
+const avatarViewToggle = document.querySelector(".avatar-view-toggle");
+const scalingSliders = Array.from(document.querySelectorAll(".scaling-slider"));
+
+const AVATAR_SUBTABS = {
+  recent: [],
+  clothing: [
+    { group: "Accessories", items: ["Hat", "Hair", "Face", "Neck", "Shoulders", "Front", "Back", "Waist"] },
+    { group: "Clothes", items: ["Shirts", "Pants", "T-Shirts"] },
+    { group: "Gear", items: ["Gear"] }
+  ],
+  body: [
+    { group: "", items: ["Skin Tone", "Packages", "Face", "Head", "Torso", "Left Arms", "Right Arms", "Left Legs", "Right Legs"] }
+  ],
+  animations: [
+    { group: "", items: ["Walk", "Run", "Fall", "Jump", "Swim", "Climb", "Idle", "Emotes"] }
+  ],
+  outfits: []
+};
+
+function renderAvatarSubtabs(tabName) {
+  avatarSubtabsContainer.innerHTML = "";
+  const groups = AVATAR_SUBTABS[tabName] || [];
+  if (groups.length === 0) {
+    avatarSubtabsContainer.hidden = true;
+    return;
+  }
+  avatarSubtabsContainer.hidden = false;
+  let first = true;
+  for (const group of groups) {
+    if (group.group) {
+      const label = document.createElement("span");
+      label.className = "avatar-subtab-group";
+      label.textContent = group.group;
+      avatarSubtabsContainer.appendChild(label);
+    }
+    for (const item of group.items) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "avatar-subtab" + (first ? " active" : "");
+      btn.textContent = item;
+      btn.addEventListener("click", () => {
+        avatarSubtabsContainer.querySelectorAll(".avatar-subtab").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+      });
+      avatarSubtabsContainer.appendChild(btn);
+      first = false;
+    }
+  }
+}
+
+avatarTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    avatarTabs.forEach((t) => t.classList.toggle("active", t === tab));
+    const tabName = tab.dataset.tab;
+    if (tabName === "outfits") {
+      avatarItemsGrid.hidden = true;
+      avatarSubtabsContainer.hidden = true;
+      avatarOutfitsPane.hidden = false;
+    } else {
+      avatarItemsGrid.hidden = false;
+      avatarOutfitsPane.hidden = true;
+      renderAvatarSubtabs(tabName);
+    }
+  });
+});
+
+avatarRigBtns.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    avatarRigBtns.forEach((b) => b.classList.toggle("active", b === btn));
+  });
+});
+
+avatarViewToggle.addEventListener("click", () => {
+  const is3d = avatarViewToggle.dataset.view === "3d";
+  avatarViewToggle.dataset.view = is3d ? "2d" : "3d";
+  avatarViewToggle.textContent = is3d ? "2D" : "3D";
+});
+
+scalingSliders.forEach((slider) => {
+  const valueSpan = slider.nextElementSibling;
+  slider.addEventListener("input", () => {
+    valueSpan.textContent = slider.value + "%";
+  });
+});
+
+function showAvatarPage() {
+  if ((currentUser?.username || "").toLowerCase() !== "marsargo") {
+    return;
+  }
+  homeDefaultContent.hidden = true;
+  searchResultsSection.hidden = true;
+  friendsPage.hidden = true;
+  catalogPage.hidden = true;
+  adminPage.hidden = true;
+  itemPage.hidden = true;
+  createPage.hidden = true;
+  configurePage.hidden = true;
+  avatarPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  renderAvatarSubtabs("recent");
+  void loadOwnedItems();
+}
+
+async function loadOwnedItems() {
+  avatarItemsGrid.innerHTML = "";
+  try {
+    const response = await fetch(`${apiBase}/api/avatar/owned`, { credentials: "same-origin" });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(result.items)) {
+      return;
+    }
+    for (const item of result.items) {
+      const card = document.createElement("div");
+      card.className = "avatar-item-card";
+      const thumb = document.createElement("div");
+      thumb.className = "avatar-item-thumb";
+      if (item.thumbnail_url && item.thumbnail_url.startsWith("http")) {
+        const img = document.createElement("img");
+        img.src = item.thumbnail_url;
+        img.alt = item.name || "";
+        img.style.cssText = "width:100%;height:100%;object-fit:cover;";
+        thumb.appendChild(img);
+      }
+      const name = document.createElement("div");
+      name.className = "avatar-item-name";
+      name.textContent = item.name || "Unnamed";
+      name.title = item.name || "";
+      card.append(thumb, name);
+      avatarItemsGrid.appendChild(card);
+    }
+  } catch {
+    // silently fail
+  }
+}
+
+avatarNavButton.addEventListener("click", showAvatarPage);
