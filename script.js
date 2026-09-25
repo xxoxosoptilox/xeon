@@ -622,7 +622,7 @@ async function loadRecommended() {
   recommendRow.innerHTML = "";
   const { ok, result } = await apiCall("GET", "/api/create/recommended");
   if (!ok || !result.creations) return;
-  const games = result.creations.filter((game) => game.thumbnail_type);
+  const games = result.creations.filter((game) => game.icon_type);
   if (!games.length) {
     recommendRow.innerHTML = '<p class="search-empty">No games yet.</p>';
     return;
@@ -630,9 +630,9 @@ async function loadRecommended() {
   games.forEach((game) => {
     const card = document.createElement("div");
     card.className = "recommend-card";
-    const thumbUrl = `/api/create/${game.id}/thumbnail`;
+    const iconUrl = `/api/create/${game.id}/icon`;
     card.innerHTML =
-      `<div class="recommend-thumb"><img src="${thumbUrl}" alt="" /></div>` +
+      `<div class="recommend-thumb"><img src="${iconUrl}" alt="" /></div>` +
       `<div class="recommend-title">${escapeHtml(game.name)}</div>`;
     recommendRow.appendChild(card);
   });
