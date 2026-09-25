@@ -1,2326 +1,1796 @@
-const form = document.querySelector("#signup-form");
-const message = document.querySelector("#form-message");
-const requiredFields = ["month", "day", "year", "username", "password"];
-const loginCard = document.querySelector(".login-card");
-const signupCard = document.querySelector(".signup-card");
-const loginButton = document.querySelector('[data-action="login"]');
-const loginForm = document.querySelector("#login-form");
-const loginMessage = document.querySelector("#login-message");
-const blackScreen = document.querySelector("#black-screen");
-const homeScreen = document.querySelector("#home-screen");
-const userNameTargets = document.querySelectorAll("[data-user-name]");
-const robuxBalanceTargets = document.querySelectorAll("[data-robux-balance]");
-const apiBase = "";
-const sidebarToggle = document.querySelector("#sidebar-toggle");
-const settingsButton = document.querySelector("#settings-button");
-const accountMenu = document.querySelector("#account-menu");
-const logoutButton = document.querySelector("#logout-button");
-const openSettingsButton = document.querySelector("#open-settings-button");
+const path = require("node:path");
+const fs = require("node:fs");
+const crypto = require("node:crypto");
+const express = require("express");
+const cors = require("cors");
+const bcrypt = require("bcryptjs");
+const { Pool } = require("pg");
+require("dotenv").config();
 
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-const THEMES = { xeon: "Xeon Theme", dark2016: "Dark (2016)", modern: "Modern Light", midnight: "Midnight" };
-const PRIVACY_OPTIONS = [["everyone", "Everyone"], ["friends", "Friends"], ["nobody", "No one"]];
+const app = express();
+const port = Number(process.env.PORT || 3000);
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-let currentUser = null;
-let selectedGender = null;
+const SESSION_COOKIE = "xedra_session";
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
+const isProduction = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
+const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID || "";
+const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || "";
+const PUBLIC_URL = String(process.env.PUBLIC_URL || `http://localhost:${port}`).replace(/\/+$/, "");
+const DISCORD_REDIRECT_URI = `${PUBLIC_URL}/api/discord/callback`;
+const DISCORD_STATE_TTL_MS = 10 * 60 * 1000;
 
-const settingsOverlay = document.querySelector("#settings-overlay");
-const settingsCloseButton = document.querySelector("#settings-close");
-const settingsUsername = document.querySelector("#settings-username");
-const editUsernameButton = document.querySelector("#edit-username-button");
-const usernameEditor = document.querySelector("#username-editor");
-const newUsernameInput = document.querySelector("#new-username");
-const usernamePasswordInput = document.querySelector("#username-password");
-const saveUsernameButton = document.querySelector("#save-username");
-const editPasswordButton = document.querySelector("#edit-password-button");
-const passwordEditor = document.querySelector("#password-editor");
-const currentPasswordInput = document.querySelector("#current-password");
-const newPasswordInput = document.querySelector("#new-password");
-const confirmPasswordInput = document.querySelector("#confirm-password");
-const savePasswordButton = document.querySelector("#save-password");
-const discordAccountLabel = document.querySelector("#discord-account-label");
-const discordConnectButton = document.querySelector("#discord-connect-button");
-const discordUnlinkButton = document.querySelector("#discord-unlink-button");
-const accountStatus = document.querySelector("#account-status");
-const blurbInput = document.querySelector("#settings-blurb");
-const settingsMonth = document.querySelector("#settings-month");
-const settingsDay = document.querySelector("#settings-day");
-const settingsYear = document.querySelector("#settings-year");
-const settingsGenderButtons = document.querySelectorAll(".settings-gender button");
-const savePersonalButton = document.querySelector("#save-personal");
-const personalStatus = document.querySelector("#personal-status");
-const privacySelects = document.querySelectorAll(".privacy-select");
-const privacyStatus = document.querySelector("#privacy-status");
-const themeSelect = document.querySelector("#theme-select");
-const themeStatus = document.querySelector("#theme-status");
-
-function showMessage(text) {
-  message.textContent = text;
+function signDiscordState(userId) {
+  const payload = `${userId}:${Date.now()}`;
+  const sig = crypto.createHmac("sha256", DISCORD_CLIENT_SECRET).update(payload).digest("hex");
+  return `${payload}:${sig}`;
 }
 
-function showLoginMessage(text) {
-  loginMessage.textContent = text;
+function verifyDiscordState(state) {
+  const parts = String(state || "").split(":");
+  if (parts.length !== 3) return null;
+  const [userId, ts, sig] = parts;
+  const payload = `${userId}:${ts}`;
+  const expected = crypto.createHmac("sha256", DISCORD_CLIENT_SECRET).update(payload).digest("hex");
+  if (sig !== expected) return null;
+  if (Date.now() - Number(ts) > DISCORD_STATE_TTL_MS) return null;
+  return userId;
 }
 
-function applyTheme(name) {
-  homeScreen.dataset.theme = THEMES[name] ? name : "xeon";
-}
+const PUBLIC_FILES = new Set([
+  "style.css",
+  "script.js",
+  "xedra.png",
+  "noFilter.png",
+  "Firefly_RemoveBackground.png",
+  "Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png",
+  "login-bg.jpg",
+  "favicon.ico"
+]);
 
-function displayUser(user) {
-  const safeUsername = (user.username || "User").trim() || "User";
-  userNameTargets.forEach((target) => { target.textContent = safeUsername; });
-  const robuxText = safeUsername.toLowerCase() === "roblox" ? "∞" : String(user.robux ?? 0);
-  robuxBalanceTargets.forEach((target) => { target.textContent = robuxText; });
-  adminNavButton.hidden = !user.isAdmin;
-  adminNavButton.style.display = user.isAdmin ? "" : "none";
-  if (!user.isAdmin) {
-    adminPage.hidden = true;
+app.use(cors());
+app.use(express.json());
+
+// Only ever serve the whitelist below. Serving the whole project folder would
+// expose server.js, package.json, and any .env file that lands in this directory.
+app.use(async (request, response, next) => {
+  if (request.method !== "GET") {
+    return next();
   }
-  applyTheme(user.preferences && user.preferences.theme);
-  void loadHomeFriends();
-  void loadRecommended();
-}
-
-function openHomeScreen() {
-  blackScreen.hidden = false;
-  blackScreen.setAttribute("aria-hidden", "false");
-  setTimeout(() => {
-    blackScreen.hidden = true;
-    blackScreen.setAttribute("aria-hidden", "true");
-    signupCard.hidden = true;
-    loginCard.hidden = true;
-    homeScreen.hidden = false;
-  }, 900);
-}
-
-function enterHomeInstant() {
-  signupCard.hidden = true;
-  loginCard.hidden = true;
-  blackScreen.hidden = true;
-  homeScreen.hidden = false;
-}
-
-function showHomeFor(username) {
-  if (!currentUser) {
-    currentUser = { username, preferences: {} };
+  if (request.path === "/" || request.path === "/index.html") {
+    return response.sendFile(path.join(__dirname, "index.html"));
   }
-  displayUser(currentUser);
-  localStorage.setItem("xedraUsername", username.trim() || "User");
-  openHomeScreen();
-  void refreshCurrentUser();
-}
-
-function restoreHomeScreen() {
-  const savedUsername = localStorage.getItem("xedraUsername");
-  if (!savedUsername) {
-    return;
-  }
-  currentUser = { username: savedUsername, preferences: {} };
-  displayUser(currentUser);
-  signupCard.hidden = true;
-  loginCard.hidden = true;
-  blackScreen.hidden = true;
-  homeScreen.hidden = false;
-}
-
-async function fetchMe() {
-  try {
-    const response = await fetch(`${apiBase}/api/me`, { credentials: "same-origin" });
-    if (response.status === 401 || !response.ok) {
-      return null;
+  if (request.path.startsWith("/assets/")) {
+    let fileName;
+    try {
+      fileName = path.basename(decodeURIComponent(request.path));
+    } catch {
+      return next();
     }
-    const result = await response.json();
-    return result.user || null;
+    if (/^[A-Za-z0-9_-]+\.(png|jpe?g|webp|gif)$/i.test(fileName)) {
+      return serveAssetWithFallback(response, next, fileName);
+    }
+    return next();
+  }
+  let fileName;
+  try {
+    fileName = path.basename(decodeURIComponent(request.path));
   } catch {
-    return undefined;
+    return next();
   }
-}
-
-async function refreshCurrentUser() {
-  const user = await fetchMe();
-  if (user) {
-    currentUser = user;
-    displayUser(user);
+  if (PUBLIC_FILES.has(fileName)) {
+    return response.sendFile(path.join(__dirname, fileName));
   }
-  return user;
-}
-
-async function initializeSession() {
-  const user = await fetchMe();
-  if (user) {
-    currentUser = user;
-    displayUser(user);
-    enterHomeInstant();
-    return;
-  }
-  if (user === null) {
-    localStorage.removeItem("xedraUsername");
-    applyTheme("xeon");
-    return;
-  }
-  restoreHomeScreen();
-}
-
-form.addEventListener("submit", (event) => {
-  void submitSignup(event);
+  return next();
 });
 
-async function submitSignup(event) {
-  event.preventDefault();
-  const username = document.querySelector("#username").value.trim();
-  const password = document.querySelector("#password").value;
-  const month = document.querySelector("#month").selectedIndex;
-  const day = document.querySelector("#day").value;
-  const year = document.querySelector("#year").value;
-  const missingField = requiredFields.some((id) => !document.querySelector(`#${id}`).value.trim());
-  if (missingField) {
-    showMessage("Complete all required fields before signing up.");
-    return;
-  }
-  if (username.length < 3) {
-    showMessage("Username must be at least 3 characters.");
-    return;
-  }
-  if (!/^[A-Za-z0-9_]+$/.test(username)) {
-    showMessage("Username can only use letters, numbers, and underscores.");
-    return;
-  }
-
-  const genderButton = document.querySelector(".gender-button.selected");
-  const birthday = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  showMessage("Creating your account...");
-
-  try {
-    const response = await fetch(`${apiBase}/api/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ username, password, birthday, gender: genderButton?.dataset.gender })
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      showMessage(result.error || "Could not create the account.");
-      return;
-    }
-    currentUser = result.user;
-    showHomeFor(result.user.username);
-  } catch (error) {
-    showMessage("The server is not running. Start it with: node server.js");
-  }
-}
-
-document.querySelectorAll(".gender-button").forEach((button) => {
-  button.addEventListener("click", () => {
-    document.querySelectorAll(".gender-button").forEach((item) => item.classList.remove("selected"));
-    button.classList.add("selected");
-  });
-});
-
-function setView(view) {
-  const showLogin = view === "login";
-  signupCard.hidden = showLogin;
-  loginCard.hidden = !showLogin;
-  loginButton.textContent = showLogin ? "Sign Up" : "Log In";
-  loginButton.dataset.action = showLogin ? "signup" : "login";
-}
-
-loginButton.addEventListener("click", () => {
-  const openingLogin = loginCard.hidden;
-  setView(openingLogin ? "login" : "signup");
-});
-
-loginForm.addEventListener("submit", (event) => {
-  void submitLogin(event);
-});
-
-async function submitLogin(event) {
-  event.preventDefault();
-  const username = document.querySelector("#login-username").value.trim();
-  const password = document.querySelector("#login-password").value;
-  if (!username || !password) {
-    showLoginMessage("Enter both fields to log in.");
-    return;
-  }
-
-  showLoginMessage("Checking your account...");
-  try {
-    const response = await fetch(`${apiBase}/api/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ username, password })
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      showLoginMessage(result.error || "Invalid username or password.");
-      return;
-    }
-    currentUser = result.user;
-    showHomeFor(result.user.username);
-  } catch (error) {
-    showLoginMessage("The server is not running. Start it with: node server.js");
-  }
-}
-
-document.querySelectorAll('[data-action="forgot"], [data-action="code"], [data-action="device"]').forEach((button) => {
-  button.addEventListener("click", () => showLoginMessage("This demo action will be connected when your account system is ready."));
-});
-
-document.querySelector('[data-action="signup"]').addEventListener("click", () => {
-  setView("signup");
-});
-
-document.querySelectorAll('[data-action="terms"], [data-action="privacy"]').forEach((link) => {
-  link.addEventListener("click", (event) => {
-    event.preventDefault();
-    showMessage(`${link.textContent} will be added in the next step.`);
-  });
-});
-
-sidebarToggle.addEventListener("click", () => {
-  const collapsed = homeScreen.classList.toggle("sidebar-collapsed");
-  sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
-  sidebarToggle.setAttribute("aria-label", collapsed ? "Show sidebar" : "Hide sidebar");
-});
-
-settingsButton.addEventListener("click", () => {
-  const isOpen = !accountMenu.hidden;
-  accountMenu.hidden = isOpen;
-  settingsButton.setAttribute("aria-expanded", String(!isOpen));
-});
-
-logoutButton.addEventListener("click", async () => {
-  try {
-    await fetch(`${apiBase}/api/logout`, { method: "POST", credentials: "same-origin" });
-  } catch {
-  }
-  currentUser = null;
-  localStorage.removeItem("xedraUsername");
-  sessionStorage.clear();
-  accountMenu.hidden = true;
-  homeScreen.hidden = true;
-  blackScreen.hidden = true;
-  applyTheme("xeon");
-  loginCard.hidden = false;
-  signupCard.hidden = true;
-  setView("login");
-  document.querySelector("#login-username").value = "";
-  document.querySelector("#login-password").value = "";
-});
-
-const playerSearchInput = document.querySelector("#player-search");
-const homeDefaultContent = document.querySelector("#home-default-content");
-const searchResultsSection = document.querySelector("#search-results-section");
-const searchResultsQuery = document.querySelector("#search-results-query");
-const searchResultsCount = document.querySelector("#search-results-count");
-const searchResultsGrid = document.querySelector("#search-results-grid");
-
-function showDefaultHomeContent() {
-  searchResultsSection.hidden = true;
-  friendsPage.hidden = true;
-  catalogPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = true;
-  createPage.hidden = true;
-  configurePage.hidden = true;
-  homeDefaultContent.hidden = false;
-}
-
-function createPlayerResultCard(user) {
-  const card = document.createElement("div");
-  card.className = "player-result-card";
-
-  const head = document.createElement("div");
-  head.className = "player-result-head";
-  const avatar = document.createElement("img");
-  avatar.src = "noFilter.png";
-  avatar.alt = "";
-  const text = document.createElement("div");
-  const name = document.createElement("strong");
-  name.textContent = user.username;
-  const status = document.createElement("span");
-  status.textContent = "Offline";
-  text.append(name, status);
-  head.append(avatar, text);
-
-  const actions = document.createElement("div");
-  actions.className = "player-result-actions";
-
-  const addButton = document.createElement("button");
-  addButton.type = "button";
-  addButton.className = "add-friend-button";
-  if (user.is_friend) {
-    addButton.textContent = "Friends";
-    addButton.disabled = true;
-  } else if (user.request_sent) {
-    addButton.textContent = "Request Sent";
-    addButton.disabled = true;
-  } else {
-    addButton.textContent = "Add Friend";
-    addButton.addEventListener("click", async () => {
-      addButton.disabled = true;
-      const { ok, result } = await apiCall("POST", "/api/friends/requests", { userId: user.id });
-      if (ok) {
-        addButton.textContent = "Request Sent";
-        return;
-      }
-      addButton.disabled = false;
-      const message = result.error || "Could not send the request.";
-      if (/already friends/i.test(message)) {
-        addButton.textContent = "Friends";
-        addButton.disabled = true;
-      } else if (/already sent you/i.test(message)) {
-        addButton.textContent = "Check Requests";
-        searchResultsCount.textContent = message;
-      } else {
-        searchResultsCount.textContent = message;
-      }
-    });
-  }
-
-  const followButton = document.createElement("button");
-  followButton.type = "button";
-  followButton.className = "add-friend-button";
-  followButton.textContent = user.is_following ? "Unfollow" : "Follow";
-  followButton.addEventListener("click", async () => {
-    followButton.disabled = true;
-    const path = user.is_following ? `/api/follows/${user.id}` : "/api/follows";
-    const { ok } = await apiCall(user.is_following ? "DELETE" : "POST", path, user.is_following ? undefined : { userId: user.id });
-    if (ok) {
-      user.is_following = !user.is_following;
-      followButton.textContent = user.is_following ? "Unfollow" : "Follow";
-    }
-    followButton.disabled = false;
-  });
-
-  actions.append(addButton, followButton);
-  card.append(head, actions);
-  return card;
-}
-
-async function runPlayerSearch(rawQuery) {
-  const query = rawQuery.trim();
-  if (!query) {
-    showDefaultHomeContent();
-    return;
-  }
-  searchResultsQuery.textContent = query;
-  searchResultsCount.textContent = "Searching...";
-  searchResultsGrid.textContent = "";
-  homeDefaultContent.hidden = true;
-  friendsPage.hidden = true;
-  catalogPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = true;
-  searchResultsSection.hidden = false;
-
-  try {
-    const response = await fetch(`${apiBase}/api/users/search?q=${encodeURIComponent(query)}`, { credentials: "same-origin" });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      searchResultsCount.textContent = result.error || "Could not search players.";
-      return;
-    }
-    const users = result.users || [];
-    searchResultsCount.textContent = `${users.length} result${users.length === 1 ? "" : "s"}`;
-    if (!users.length) {
-      const empty = document.createElement("p");
-      empty.className = "search-empty";
-      empty.textContent = "No players found.";
-      searchResultsGrid.appendChild(empty);
-      return;
-    }
-    users.forEach((user) => searchResultsGrid.appendChild(createPlayerResultCard(user)));
-  } catch {
-    searchResultsCount.textContent = "The server is not running. Start it with: node server.js";
-  }
-}
-
-playerSearchInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    void runPlayerSearch(playerSearchInput.value);
-  }
-});
-playerSearchInput.addEventListener("search", () => {
-  if (!playerSearchInput.value.trim()) {
-    showDefaultHomeContent();
-  }
-});
-
-const homeNavButton = document.querySelector("#home-nav-button");
-homeNavButton.addEventListener("click", () => {
-  playerSearchInput.value = "";
-  showDefaultHomeContent();
-  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
-});
-
-async function apiCall(method, path, body) {
-  try {
-    const response = await fetch(`${apiBase}${path}`, {
-      method,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
-      credentials: "same-origin",
-      body: body ? JSON.stringify(body) : undefined
-    });
-    const result = await response.json().catch(() => ({}));
-    return { ok: response.ok, result };
-  } catch {
-    return { ok: false, result: { error: "The server is not running. Start it with: node server.js" } };
-  }
-}
-
-async function apiCallRaw(method, path, buffer, contentType) {
-  try {
-    const response = await fetch(`${apiBase}${path}`, {
-      method,
-      headers: { "Content-Type": contentType },
-      credentials: "same-origin",
-      body: buffer
-    });
-    const result = await response.json().catch(() => ({}));
-    return { ok: response.ok, result };
-  } catch {
-    return { ok: false, result: { error: "The server is not running. Start it with: node server.js" } };
-  }
-}
-
-const friendsNavButton = document.querySelector("#friends-nav-button");
-const supportNavButton = document.querySelector("#support-nav-button");
-const friendsBadge = document.querySelector("#friends-badge");
-const friendsPage = document.querySelector("#friends-page");
-const friendsStatus = document.querySelector("#friends-status");
-const homeFriendsCount = document.querySelector("#home-friends-count");
-const homeFriendsRow = document.querySelector("#home-friends-row");
-const recommendRow = document.querySelector("#recommend-row");
-const friendsTabs = Array.from(document.querySelectorAll(".friends-tab"));
-const friendsPanels = {
-  requests: document.querySelector("#friends-panel-requests"),
-  friends: document.querySelector("#friends-panel-friends"),
-  followers: document.querySelector("#friends-panel-followers"),
-  following: document.querySelector("#friends-panel-following")
-};
-
-function showFriendsPage() {
-  homeDefaultContent.hidden = true;
-  searchResultsSection.hidden = true;
-  catalogPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = true;
-  createPage.hidden = true;
-  configurePage.hidden = true;
-  friendsPage.hidden = false;
-  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
-  void loadFriendsPage();
-}
-
-friendsNavButton.addEventListener("click", showFriendsPage);
-
-supportNavButton.addEventListener("click", () => {
-  window.open("https://discord.gg/VDHnCDtX2", "_blank", "noopener");
-});
-
-friendsTabs.forEach((tab) => {
-  tab.addEventListener("click", () => {
-    friendsTabs.forEach((item) => item.classList.toggle("active", item === tab));
-    Object.entries(friendsPanels).forEach(([key, panel]) => {
-      panel.hidden = key !== tab.dataset.tab;
-    });
-  });
-});
-
-function setFriendsStatus(message, isError) {
-  friendsStatus.hidden = !message;
-  friendsStatus.textContent = message || "";
-  friendsStatus.classList.toggle("error", Boolean(isError));
-}
-
-function setTabCount(tab, count) {
-  tab.textContent = `${tab.dataset.label} (${count})`;
-}
-
-function friendPageCard(user, buttons) {
-  const card = document.createElement("div");
-  card.className = "friend-page-card";
-  const avatar = document.createElement("img");
-  avatar.src = "noFilter.png";
-  avatar.alt = "";
-  const name = document.createElement("span");
-  name.className = "friend-name";
-  name.textContent = user.username;
-  const actions = document.createElement("div");
-  actions.className = "friend-card-actions";
-  buttons.forEach((button) => actions.appendChild(button));
-  card.append(avatar, name, actions);
-  return card;
-}
-
-function friendActionButton(label, primary, onClick) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = primary ? "friend-action-button primary" : "friend-action-button";
-  button.textContent = label;
-  button.addEventListener("click", onClick);
-  return button;
-}
-
-function emptyFriendsNote(text) {
-  const note = document.createElement("p");
-  note.className = "friends-empty";
-  note.textContent = text;
-  return note;
-}
-
-function updateFriendsChrome(data) {
-  const requests = data.requests || [];
-  const friends = data.friends || [];
-
-  const requestsTab = friendsTabs.find((tab) => tab.dataset.tab === "requests");
-  setTabCount(requestsTab, requests.length);
-  friendsBadge.hidden = requests.length === 0;
-  friendsBadge.textContent = String(requests.length);
-  friendsTabs.forEach((tab) => {
-    if (tab !== requestsTab) {
-      setTabCount(tab, (data[tab.dataset.tab] || []).length);
-    }
-  });
-
-  homeFriendsCount.textContent = `(${friends.length})`;
-  homeFriendsRow.textContent = "";
-  if (!friends.length) {
-    homeFriendsRow.appendChild(emptyFriendsNote("You have no friends yet."));
-    return;
-  }
-  friends.forEach((user) => {
-    const card = document.createElement("div");
-    card.className = "friend-home-card";
-    const avatar = document.createElement("img");
-    avatar.src = "noFilter.png";
-    avatar.alt = "";
-    const name = document.createElement("span");
-    name.textContent = user.username;
-    card.append(avatar, name);
-    homeFriendsRow.appendChild(card);
-  });
-}
-
-async function loadHomeFriends() {
-  const { ok, result } = await apiCall("GET", "/api/friends");
-  if (ok) {
-    updateFriendsChrome(result);
-  }
-}
-
-function escapeHtml(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-async function loadRecommended() {
-  if (!recommendRow) return;
-  recommendRow.innerHTML = "";
-  const { ok, result } = await apiCall("GET", "/api/create/recommended");
-  if (!ok || !result.creations) return;
-  const games = result.creations.filter((game) => game.icon_type);
-  if (!games.length) {
-    recommendRow.innerHTML = '<p class="search-empty">No games yet.</p>';
-    return;
-  }
-  games.forEach((game) => {
-    const card = document.createElement("div");
-    card.className = "recommend-card";
-    const iconUrl = `/api/create/${game.id}/icon`;
-    card.innerHTML =
-      `<div class="recommend-thumb"><img src="${iconUrl}" alt="" /></div>` +
-      `<div class="recommend-title">${escapeHtml(game.name)}</div>`;
-    recommendRow.appendChild(card);
-  });
-}
-
-async function respondToRequest(requestId, action) {
-  setFriendsStatus("");
-  const { ok, result } = await apiCall("POST", `/api/friends/requests/${requestId}/${action}`);
-  if (!ok) {
-    setFriendsStatus(result.error || "Could not update the request.", true);
-    return;
-  }
-  await loadFriendsPage();
-}
-
-async function toggleFollow(user, button) {
-  button.disabled = true;
-  const path = user.is_following ? `/api/follows/${user.id}` : "/api/follows";
-  const { ok } = await apiCall(user.is_following ? "DELETE" : "POST", path, user.is_following ? undefined : { userId: user.id });
-  if (ok) {
-    user.is_following = !user.is_following;
-    button.textContent = user.is_following ? "Unfollow" : "Follow";
-  }
-  button.disabled = false;
-}
-
-async function loadFriendsPage() {
-  setFriendsStatus("Loading...");
-  const { ok, result } = await apiCall("GET", "/api/friends");
-  if (!ok) {
-    Object.values(friendsPanels).forEach((panel) => { panel.textContent = ""; });
-    setFriendsStatus(result.error || "Could not load your friends.", true);
-    return;
-  }
-  setFriendsStatus("");
-
-  const data = result;
-  const requests = data.requests || [];
-  const friends = data.friends || [];
-  const followers = data.followers || [];
-  const following = data.following || [];
-  updateFriendsChrome(data);
-
-  friendsPanels.requests.textContent = "";
-  if (!requests.length) {
-    friendsPanels.requests.appendChild(emptyFriendsNote("You have no friend requests."));
-  } else {
-    requests.forEach((user) => {
-      friendsPanels.requests.appendChild(friendPageCard(user, [
-        friendActionButton("Accept", true, () => void respondToRequest(user.request_id, "accept")),
-        friendActionButton("Decline", false, () => void respondToRequest(user.request_id, "decline"))
-      ]));
-    });
-  }
-
-  friendsPanels.friends.textContent = "";
-  if (!friends.length) {
-    friendsPanels.friends.appendChild(emptyFriendsNote("You have no friends yet."));
-  } else {
-    friends.forEach((user) => {
-      friendsPanels.friends.appendChild(friendPageCard(user, [
-        friendActionButton("Unfriend", false, async () => {
-          const unfriendResult = await apiCall("DELETE", `/api/friends/${user.id}`);
-          if (!unfriendResult.ok) {
-            setFriendsStatus(unfriendResult.result.error || "Could not unfriend.", true);
-            return;
-          }
-          await loadFriendsPage();
-        })
-      ]));
-    });
-  }
-
-  friendsPanels.followers.textContent = "";
-  if (!followers.length) {
-    friendsPanels.followers.appendChild(emptyFriendsNote("You have no followers."));
-  } else {
-    followers.forEach((user) => {
-      const buttons = [];
-      if (!user.is_friend) {
-        buttons.push(friendActionButton("Add Friend", false, async (event) => {
-          const button = event.currentTarget;
-          button.disabled = true;
-          const addResult = await apiCall("POST", "/api/friends/requests", { userId: user.id });
-          if (addResult.ok) {
-            button.textContent = "Request Sent";
-            return;
-          }
-          button.disabled = false;
-          setFriendsStatus(addResult.result.error || "Could not send the request.", true);
-        }));
-      }
-      if (user.following_back) {
-        const button = friendActionButton("Following", false, () => {});
-        button.disabled = true;
-        buttons.push(button);
-      } else {
-        const button = friendActionButton("Follow Back", true, () => void toggleFollow(user, button));
-        buttons.push(button);
-      }
-      friendsPanels.followers.appendChild(friendPageCard(user, buttons));
-    });
-  }
-
-  friendsPanels.following.textContent = "";
-  if (!following.length) {
-    friendsPanels.following.appendChild(emptyFriendsNote("You are not following anyone."));
-  } else {
-    following.forEach((user) => {
-      const button = friendActionButton("Unfollow", false, () => void toggleFollow(user, button));
-      friendsPanels.following.appendChild(friendPageCard(user, [button]));
-    });
-  }
-}
-
-const CATALOG_GENRES = [
-  ["building", "Building"], ["horror", "Horror"], ["town_and_city", "Town and City"],
-  ["military", "Military"], ["comedy", "Comedy"], ["medieval", "Medieval"],
-  ["adventure", "Adventure"], ["sci-fi", "Sci-Fi"], ["naval", "Naval"], ["fps", "FPS"],
-  ["rpg", "RPG"], ["sports", "Sports"], ["fighting", "Fighting"], ["western", "Western"]
-];
-const CATALOG_CATEGORY_LABELS = {
-  all: "All Categories",
-  featured: "All Featured Items",
-  featured_accessories: "Featured Accessories",
-  featured_faces: "Featured Faces",
-  featured_gear: "Featured Gear",
-  community: "Community Creations",
-  collectibles: "Collectibles",
-  clothing: "Clothing",
-  body_parts: "Body Parts",
-  gear: "Gear",
-  accessories: "Accessories"
-};
-const ROBUX_ICON = "Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png";
-
-const catalogNavButton = document.querySelector("#catalog-nav-button");
-const topMarketplaceButton = document.querySelector("#top-marketplace-button");
-const catalogPage = document.querySelector("#catalog-page");
-const catalogCategories = Array.from(document.querySelectorAll(".catalog-category"));
-const catalogGenreList = document.querySelector("#catalog-genre-list");
-const catalogCrumb = document.querySelector("#catalog-crumb");
-const catalogCount = document.querySelector("#catalog-count");
-const catalogGrid = document.querySelector("#catalog-grid");
-const catalogSearch = document.querySelector("#catalog-search");
-const catalogSort = document.querySelector("#catalog-sort");
-const catalogCreatorName = document.querySelector("#catalog-creator-name");
-const catalogMinPrice = document.querySelector("#catalog-min-price");
-const catalogMaxPrice = document.querySelector("#catalog-max-price");
-
-const catalogState = {
-  category: "all",
-  genre: "",
-  creator: "",
-  creatorType: "",
-  currency: "",
-  priceMode: "any",
-  minPrice: "",
-  maxPrice: "",
-  includeUnavailable: true,
-  q: "",
-  sort: "relevance"
-};
-
-function buildGenreRadios() {
-  const allItem = document.createElement("label");
-  allItem.className = "catalog-radio";
-  const allRadio = document.createElement("input");
-  allRadio.type = "radio";
-  allRadio.name = "catalog-genre";
-  allRadio.value = "";
-  allRadio.checked = true;
-  allItem.append(allRadio, " All Genres");
-  catalogGenreList.appendChild(allItem);
-  CATALOG_GENRES.forEach(([value, label]) => {
-    const item = document.createElement("label");
-    item.className = "catalog-radio";
-    const radio = document.createElement("input");
-    radio.type = "radio";
-    radio.name = "catalog-genre";
-    radio.value = value;
-    item.append(radio, ` ${label}`);
-    catalogGenreList.appendChild(item);
-  });
-}
-buildGenreRadios();
-
-function showCatalogPage() {
-  homeDefaultContent.hidden = true;
-  searchResultsSection.hidden = true;
-  friendsPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = true;
-  createPage.hidden = true;
-  configurePage.hidden = true;
-  catalogPage.hidden = false;
-  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
-  void loadCatalog();
-}
-
-catalogNavButton.addEventListener("click", showCatalogPage);
-topMarketplaceButton.addEventListener("click", showCatalogPage);
-
-catalogCategories.forEach((button) => {
-  button.addEventListener("click", () => {
-    catalogCategories.forEach((item) => item.classList.toggle("active", item === button));
-    catalogState.category = button.dataset.category;
-    void loadCatalog();
-  });
-});
-
-catalogGenreList.addEventListener("change", (event) => {
-  if (event.target.name === "catalog-genre") {
-    catalogState.genre = event.target.value;
-    void loadCatalog();
-  }
-});
-
-document.querySelectorAll('input[name="catalog-creator"]').forEach((radio) => {
-  radio.addEventListener("change", () => {
-    catalogState.creator = radio.value;
-    catalogCreatorName.value = "";
-    void loadCatalog();
-  });
-});
-
-document.querySelector("#catalog-creator-go").addEventListener("click", () => {
-  catalogState.creator = catalogCreatorName.value.trim();
-  document.querySelectorAll('input[name="catalog-creator"]').forEach((radio) => {
-    radio.checked = radio.value === "" && !catalogState.creator;
-  });
-  void loadCatalog();
-});
-
-document.querySelectorAll('input[name="catalog-creator-type"]').forEach((radio) => {
-  radio.addEventListener("change", () => {
-    catalogState.creatorType = radio.value;
-    void loadCatalog();
-  });
-});
-
-document.querySelectorAll('input[name="catalog-currency"]').forEach((radio) => {
-  radio.addEventListener("change", () => {
-    catalogState.currency = radio.value;
-    void loadCatalog();
-  });
-});
-
-document.querySelectorAll('input[name="catalog-price"]').forEach((radio) => {
-  radio.addEventListener("change", () => {
-    catalogState.priceMode = radio.value === "free" ? "free" : "any";
-    void loadCatalog();
-  });
-});
-
-document.querySelector("#catalog-price-go").addEventListener("click", () => {
-  catalogState.minPrice = catalogMinPrice.value.trim();
-  catalogState.maxPrice = catalogMaxPrice.value.trim();
-  catalogState.priceMode = "range";
-  document.querySelectorAll('input[name="catalog-price"]').forEach((radio) => {
-    radio.checked = false;
-  });
-  void loadCatalog();
-});
-
-document.querySelectorAll('input[name="catalog-unavailable"]').forEach((radio) => {
-  radio.addEventListener("change", () => {
-    catalogState.includeUnavailable = radio.value === "show";
-    void loadCatalog();
-  });
-});
-
-catalogSearch.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    catalogState.q = catalogSearch.value.trim();
-    void loadCatalog();
-  }
-});
-catalogSearch.addEventListener("search", () => {
-  if (!catalogSearch.value.trim()) {
-    catalogState.q = "";
-    void loadCatalog();
-  }
-});
-
-catalogSort.addEventListener("change", () => {
-  catalogState.sort = catalogSort.value;
-  void loadCatalog();
-});
-
-const catalogCodeButton = document.querySelector("#catalog-code-button");
-const catalogCodeRow = document.querySelector("#catalog-code-row");
-const catalogCodeInput = document.querySelector("#catalog-code-input");
-const catalogCodeGo = document.querySelector("#catalog-code-go");
-const catalogCodeStatus = document.querySelector("#catalog-code-status");
-
-catalogCodeButton.addEventListener("click", () => {
-  const open = catalogCodeRow.hidden;
-  catalogCodeRow.hidden = !open;
-  catalogCodeButton.setAttribute("aria-expanded", String(open));
-  if (open) {
-    catalogCodeInput.focus();
-  }
-});
-
-async function followCatalogCode() {
-  const code = catalogCodeInput.value.trim();
-  if (!/^\d+$/.test(code)) {
-    setStatus(catalogCodeStatus, "Item codes are numbers only.", true);
-    catalogCodeStatus.hidden = false;
-    return;
-  }
-  const { ok, result } = await apiCall("GET", `/api/catalog/by-code/${encodeURIComponent(code)}`);
-  if (!ok || !result.itemId) {
-    setStatus(catalogCodeStatus, result.error || "No item matches that code.", true);
-    catalogCodeStatus.hidden = false;
-    return;
-  }
-  catalogCodeStatus.hidden = true;
-  await openItemPage(result.itemId);
-}
-
-catalogCodeGo.addEventListener("click", () => void followCatalogCode());
-catalogCodeInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    void followCatalogCode();
-  }
-});
-
-function hasActiveCatalogFilters() {
-  return catalogState.category !== "all"
-    || Boolean(catalogState.genre)
-    || Boolean(catalogState.creator)
-    || Boolean(catalogState.creatorType)
-    || Boolean(catalogState.currency)
-    || catalogState.priceMode !== "any"
-    || catalogState.includeUnavailable
-    || Boolean(catalogState.q);
-}
-
-function buildCatalogQuery() {
-  const params = new URLSearchParams();
-  if (catalogState.category !== "all") {
-    params.set("category", catalogState.category);
-  }
-  if (catalogState.genre) {
-    params.set("genre", catalogState.genre);
-  }
-  if (catalogState.creator) {
-    params.set("creator", catalogState.creator);
-  }
-  if (catalogState.creatorType) {
-    params.set("creatorType", catalogState.creatorType);
-  }
-  if (catalogState.currency) {
-    params.set("currency", catalogState.currency);
-  }
-  if (catalogState.priceMode === "free") {
-    params.set("free", "1");
-  }
-  if (catalogState.priceMode === "range") {
-    if (catalogState.minPrice !== "") {
-      params.set("minPrice", catalogState.minPrice);
-    }
-    if (catalogState.maxPrice !== "") {
-      params.set("maxPrice", catalogState.maxPrice);
-    }
-  }
-  if (catalogState.includeUnavailable) {
-    params.set("includeUnavailable", "1");
-  }
-  if (catalogState.q) {
-    params.set("q", catalogState.q);
-  }
-  if (catalogState.sort !== "relevance") {
-    params.set("sort", catalogState.sort);
-  }
-  const text = params.toString();
-  return text ? `?${text}` : "";
-}
-
-function createCatalogItemCard(item) {
-  const card = document.createElement("div");
-  card.className = "catalog-item";
-
-  const thumb = document.createElement("div");
-  thumb.className = "catalog-thumb";
-  if (item.thumbnailUrl) {
-    const image = document.createElement("img");
-    image.src = item.thumbnailUrl;
-    image.alt = item.name;
-    thumb.appendChild(image);
-  } else {
-    const initial = document.createElement("span");
-    initial.className = "catalog-thumb-initial";
-    initial.textContent = (item.name || "?").trim().charAt(0) || "?";
-    thumb.appendChild(initial);
-  }
-  if (item.isNew || !item.isAvailable) {
-    const badges = document.createElement("div");
-    badges.className = "catalog-badges";
-    if (item.isNew) {
-      const badge = document.createElement("span");
-      badge.className = "catalog-badge";
-      badge.textContent = "New";
-      badges.appendChild(badge);
-    }
-    if (!item.isAvailable) {
-      const offSale = document.createElement("span");
-      offSale.className = "catalog-badge offsale";
-      offSale.textContent = "Off Sale";
-      badges.appendChild(offSale);
-    }
-    thumb.appendChild(badges);
-  }
-
-  const body = document.createElement("div");
-  body.className = "catalog-item-body";
-  const name = document.createElement("p");
-  name.className = "catalog-item-name";
-  name.textContent = item.name;
-  name.title = item.name;
-  body.appendChild(name);
-
-  if (item.isLimited || item.isLimitedUnique) {
-    const tags = document.createElement("div");
-    tags.className = "catalog-item-tags";
-    if (item.isLimited) {
-      const limited = document.createElement("span");
-      limited.className = "catalog-tag limited";
-      limited.textContent = "LIMITED";
-      tags.appendChild(limited);
-    }
-    if (item.isLimitedUnique) {
-      const unique = document.createElement("span");
-      unique.className = "catalog-tag unique";
-      unique.textContent = "U";
-      tags.appendChild(unique);
-    }
-    body.appendChild(tags);
-  }
-
-  const price = document.createElement("p");
-  price.className = "catalog-item-price";
-  if (item.price === 0) {
-    price.classList.add("free");
-    price.textContent = "Free";
-  } else if (item.currency === "tickets") {
-    price.textContent = `${item.price} Tickets`;
-  } else {
-    const icon = document.createElement("img");
-    icon.src = ROBUX_ICON;
-    icon.alt = "Robux";
-    const amount = document.createElement("span");
-    amount.textContent = String(item.price);
-    price.append(icon, amount);
-  }
-  body.appendChild(price);
-
-  if (item.salesCount > 0) {
-    const sales = document.createElement("p");
-    sales.className = "catalog-item-sales";
-    sales.textContent = `Sales ${item.salesCount}`;
-    body.appendChild(sales);
-  }
-
-  card.append(thumb, body);
-  card.addEventListener("click", () => openItemPage(item.id));
-  return card;
-}
-
-async function loadCatalog() {
-  catalogCount.textContent = "Loading...";
-  const { ok, result } = await apiCall("GET", `/api/catalog${buildCatalogQuery()}`);
-  if (!ok) {
-    catalogGrid.textContent = "";
-    catalogCount.textContent = result.error || "Could not load the catalog.";
-    return;
-  }
-  const items = result.items || [];
-  const total = result.total || 0;
-  catalogCrumb.textContent = CATALOG_CATEGORY_LABELS[catalogState.category] || "All Categories";
-  catalogCount.textContent = total === 0
-    ? "0 Results"
-    : `1 - ${items.length} of ${total} Result${total === 1 ? "" : "s"}`;
-  catalogGrid.textContent = "";
-  if (!items.length) {
-    const empty = document.createElement("p");
-    empty.className = "catalog-empty";
-    empty.textContent = hasActiveCatalogFilters()
-      ? "No items match your filters. Try a different category or search."
-      : "There are no items in the catalog yet. Check back soon for new gear, faces, and more.";
-    catalogGrid.appendChild(empty);
-    return;
-  }
-  items.forEach((item) => catalogGrid.appendChild(createCatalogItemCard(item)));
-}
-
-function fillSelect(select, placeholder, items, selectedValue) {
-  select.textContent = "";
-  const placeholderOption = document.createElement("option");
-  placeholderOption.value = "";
-  placeholderOption.textContent = placeholder;
-  select.appendChild(placeholderOption);
-  items.forEach((item) => {
-    const option = document.createElement("option");
-    option.value = item.value;
-    option.textContent = item.label;
-    select.appendChild(option);
-  });
-  if (selectedValue) {
-    select.value = selectedValue;
-  }
-}
-
-fillSelect(settingsMonth, "Month", MONTHS.map((label, index) => ({ value: String(index + 1), label })));
-fillSelect(settingsDay, "Day", Array.from({ length: 31 }, (_, index) => ({ value: String(index + 1), label: String(index + 1) })));
-const currentYear = new Date().getFullYear();
-const yearItems = [];
-for (let year = currentYear; year >= 1950; year -= 1) {
-  yearItems.push({ value: String(year), label: String(year) });
-}
-fillSelect(settingsYear, "Year", yearItems);
-privacySelects.forEach((select) => {
-  fillSelect(select, "Select", PRIVACY_OPTIONS.map(([value, label]) => ({ value, label })));
-});
-Object.entries(THEMES).forEach(([value, label]) => {
-  const option = document.createElement("option");
-  option.value = value;
-  option.textContent = label;
-  themeSelect.appendChild(option);
-});
-
-function setStatus(element, text, isError = false) {
-  element.textContent = text;
-  element.classList.toggle("error", isError);
-}
-
-function populateSettings(user) {
-  settingsUsername.textContent = user.username;
-  blurbInput.value = user.blurb || "";
-
-  const [birthYear, birthMonth, birthDay] = String(user.birthday || "").split("-");
-  settingsMonth.value = birthMonth ? String(Number(birthMonth)) : "";
-  settingsDay.value = birthDay ? String(Number(birthDay)) : "";
-  settingsYear.value = birthYear || "";
-
-  selectedGender = user.gender === "male" || user.gender === "female" ? user.gender : null;
-  settingsGenderButtons.forEach((button) => {
-    button.classList.toggle("selected", button.dataset.genderValue === selectedGender);
-  });
-
-  const preferences = user.preferences || {};
-  privacySelects.forEach((select) => {
-    select.value = preferences[select.dataset.pref] || "everyone";
-  });
-  themeSelect.value = THEMES[preferences.theme] ? preferences.theme : "xeon";
-
-  usernameEditor.hidden = true;
-  passwordEditor.hidden = true;
-  const discordName = user.discordId || user.discordUsername || "";
-  discordAccountLabel.textContent = discordName || "Not connected";
-  discordConnectButton.textContent = discordName ? "Change" : "Connect";
-  discordUnlinkButton.hidden = !discordName;
-  setStatus(accountStatus, "");
-  setStatus(personalStatus, "");
-  setStatus(privacyStatus, "");
-  setStatus(themeStatus, "");
-}
-
-async function openSettings() {
-  const user = await fetchMe();
-  if (!user) {
-    return;
-  }
-  currentUser = user;
-  displayUser(user);
-  populateSettings(user);
-  accountMenu.hidden = true;
-  settingsOverlay.hidden = false;
-}
-
-function closeSettings() {
-  settingsOverlay.hidden = true;
-}
-
-openSettingsButton.addEventListener("click", () => {
-  void openSettings();
-});
-settingsCloseButton.addEventListener("click", closeSettings);
-settingsOverlay.addEventListener("click", (event) => {
-  if (event.target === settingsOverlay) {
-    closeSettings();
-  }
-});
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !settingsOverlay.hidden) {
-    closeSettings();
-  }
-});
-
-editUsernameButton.addEventListener("click", () => {
-  usernameEditor.hidden = !usernameEditor.hidden;
-  if (!usernameEditor.hidden) {
-    newUsernameInput.focus();
-  }
-});
-editPasswordButton.addEventListener("click", () => {
-  passwordEditor.hidden = !passwordEditor.hidden;
-  if (!passwordEditor.hidden) {
-    currentPasswordInput.focus();
-  }
-});
-document.querySelectorAll("[data-close-editor]").forEach((button) => {
-  button.addEventListener("click", () => {
-    document.querySelector(`#${button.dataset.closeEditor}`).hidden = true;
-  });
-});
-
-async function apiPut(path, body) {
-  try {
-    const response = await fetch(`${apiBase}${path}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify(body)
-    });
-    const result = await response.json().catch(() => ({}));
-    return { ok: response.ok, result };
-  } catch {
-    return { ok: false, result: { error: "The server is not running. Start it with: node server.js" } };
-  }
-}
-
-saveUsernameButton.addEventListener("click", async () => {
-  const newUsername = newUsernameInput.value.trim();
-  if (newUsername.length < 3 || !/^[A-Za-z0-9_]+$/.test(newUsername)) {
-    setStatus(accountStatus, "Username must be 3+ characters using only letters, numbers, or underscores.", true);
-    return;
-  }
-  setStatus(accountStatus, "Saving username...");
-  const { ok, result } = await apiPut("/api/me/username", { newUsername, password: usernamePasswordInput.value });
-  if (!ok) {
-    setStatus(accountStatus, result.error || "Could not change your username.", true);
-    return;
-  }
-  currentUser.username = result.user.username;
-  displayUser(currentUser);
-  settingsUsername.textContent = result.user.username;
-  localStorage.setItem("xedraUsername", result.user.username);
-  newUsernameInput.value = "";
-  usernamePasswordInput.value = "";
-  usernameEditor.hidden = true;
-  setStatus(accountStatus, "Username changed.");
-});
-
-savePasswordButton.addEventListener("click", async () => {
-  const newPassword = newPasswordInput.value;
-  if (newPassword.length < 8) {
-    setStatus(accountStatus, "New password must be at least 8 characters.", true);
-    return;
-  }
-  if (newPassword !== confirmPasswordInput.value) {
-    setStatus(accountStatus, "New passwords do not match.", true);
-    return;
-  }
-  setStatus(accountStatus, "Saving password...");
-  const { ok, result } = await apiPut("/api/me/password", {
-    currentPassword: currentPasswordInput.value,
-    newPassword
-  });
-  if (!ok) {
-    setStatus(accountStatus, result.error || "Could not change your password.", true);
-    return;
-  }
-  currentPasswordInput.value = "";
-  newPasswordInput.value = "";
-  confirmPasswordInput.value = "";
-  passwordEditor.hidden = true;
-  setStatus(accountStatus, "Password changed. Other sessions were signed out.");
-});
-
-settingsGenderButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    const value = button.dataset.genderValue;
-    selectedGender = selectedGender === value ? null : value;
-    settingsGenderButtons.forEach((item) => {
-      item.classList.toggle("selected", item.dataset.genderValue === selectedGender);
-    });
-  });
-});
-
-function buildSettingsBirthday() {
-  const { value: month } = settingsMonth;
-  const { value: day } = settingsDay;
-  const { value: year } = settingsYear;
-  if (!month || !day || !year) {
+function readCookie(request, name) {
+  const header = request.headers.cookie;
+  if (!header) {
     return null;
   }
-  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-}
-
-savePersonalButton.addEventListener("click", async () => {
-  const birthday = buildSettingsBirthday();
-  if (!birthday) {
-    setStatus(personalStatus, "Pick a full birthday.", true);
-    return;
-  }
-  setStatus(personalStatus, "Saving...");
-  const { ok, result } = await apiPut("/api/me", {
-    blurb: blurbInput.value,
-    birthday,
-    gender: selectedGender
-  });
-  if (!ok) {
-    setStatus(personalStatus, result.error || "Could not save.", true);
-    return;
-  }
-  currentUser = result.user;
-  displayUser(currentUser);
-  setStatus(personalStatus, "Saved.");
-});
-
-privacySelects.forEach((select) => {
-  select.addEventListener("change", async () => {
-    setStatus(privacyStatus, "Saving...");
-    const { ok, result } = await apiPut("/api/me", { preferences: { [select.dataset.pref]: select.value } });
-    if (!ok) {
-      setStatus(privacyStatus, result.error || "Could not save.", true);
-      return;
+  for (const part of header.split(";")) {
+    const index = part.indexOf("=");
+    if (index === -1) {
+      continue;
     }
-    currentUser = result.user;
-    setStatus(privacyStatus, "Privacy updated.");
-  });
-});
-
-themeSelect.addEventListener("change", async () => {
-  applyTheme(themeSelect.value);
-  setStatus(themeStatus, "Saving theme...");
-  const { ok, result } = await apiPut("/api/me", { preferences: { theme: themeSelect.value } });
-  if (!ok) {
-    setStatus(themeStatus, result.error || "Could not save theme.", true);
-    return;
-  }
-  currentUser = result.user;
-  setStatus(themeStatus, "Theme saved.");
-});
-
-const adminNavButton = document.querySelector("#admin-nav-button");
-const adminPage = document.querySelector("#admin-page");
-const adminImportInput = document.querySelector("#admin-import-input");
-const adminImportButton = document.querySelector("#admin-import-button");
-const adminImportStatus = document.querySelector("#admin-import-status");
-const adminImportResult = document.querySelector("#admin-import-result");
-const adminImportCode = document.querySelector("#admin-import-code");
-const adminImportPreview = document.querySelector("#admin-import-preview");
-const adminUpdateCode = document.querySelector("#admin-update-code");
-const adminUpdatePrice = document.querySelector("#admin-update-price");
-const adminUpdateRap = document.querySelector("#admin-update-rap");
-const adminUpdateStock = document.querySelector("#admin-update-stock");
-const adminUpdateCategory = document.querySelector("#admin-update-category");
-const adminUpdateButton = document.querySelector("#admin-update-button");
-const adminUpdateStatus = document.querySelector("#admin-update-status");
-const adminDeleteCode = document.querySelector("#admin-delete-code");
-const adminDeleteButton = document.querySelector("#admin-delete-button");
-const adminRefundButton = document.querySelector("#admin-refund-button");
-const adminDeleteStatus = document.querySelector("#admin-delete-status");
-const adminCodesList = document.querySelector("#admin-codes-list");
-const adminPendingList = document.querySelector("#admin-pending-list");
-const adminAcceptStatus = document.querySelector("#admin-accept-status");
-
-const itemPage = document.querySelector("#item-page");
-const itemDetail = document.querySelector("#item-detail");
-const itemBackButton = document.querySelector("#item-back-button");
-
-function showAdminPage() {
-  homeDefaultContent.hidden = true;
-  searchResultsSection.hidden = true;
-  friendsPage.hidden = true;
-  catalogPage.hidden = true;
-  itemPage.hidden = true;
-  createPage.hidden = true;
-  configurePage.hidden = true;
-  adminPage.hidden = false;
-  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
-  void loadAdminCodes();
-  void loadPendingAssets();
-}
-
-adminNavButton.addEventListener("click", showAdminPage);
-
-async function loadAdminCodes() {
-  const { ok, result } = await apiCall("GET", "/api/admin/imports");
-  adminCodesList.textContent = "";
-  if (!ok) {
-    const line = document.createElement("li");
-    line.textContent = result.error || "Could not load the import codes.";
-    adminCodesList.appendChild(line);
-    return;
-  }
-  const imports = result.imports || [];
-  if (!imports.length) {
-    const line = document.createElement("li");
-    line.className = "empty";
-    line.textContent = "No codes generated yet. Import an asset above to get one.";
-    adminCodesList.appendChild(line);
-    return;
-  }
-  imports.forEach((entry) => {
-    const line = document.createElement("li");
-    const code = document.createElement("strong");
-    code.textContent = `Code ${entry.code}`;
-    const name = document.createElement("span");
-    name.className = "code-name";
-    name.textContent = `${entry.name || "Unknown"} (asset ${entry.asset_id})`;
-    const state = document.createElement("span");
-    state.className = entry.catalog_item_id ? "code-state used" : "code-state";
-    state.textContent = entry.catalog_item_id ? `in catalog as item #${entry.catalog_item_id}` : "waiting for Update Asset";
-    line.append(code, name, state);
-    adminCodesList.appendChild(line);
-  });
-}
-
-async function loadPendingAssets() {
-  if (!adminPendingList) return;
-  adminPendingList.textContent = "";
-  const { ok, result } = await apiCall("GET", "/api/admin/pending-assets");
-  if (!ok) {
-    const line = document.createElement("li");
-    line.textContent = result.error || "Could not load pending assets.";
-    adminPendingList.appendChild(line);
-    return;
-  }
-  const assets = result.assets || [];
-  if (!assets.length) {
-    const line = document.createElement("li");
-    line.className = "empty";
-    line.textContent = "No pending assets. All assets are accepted.";
-    adminPendingList.appendChild(line);
-    return;
-  }
-  assets.forEach((asset) => {
-    const line = document.createElement("li");
-    line.className = "pending-asset-row";
-    const info = document.createElement("div");
-    info.className = "pending-asset-info";
-    const name = document.createElement("strong");
-    name.textContent = asset.name || "Unnamed Asset";
-    const meta = document.createElement("span");
-    meta.className = "pending-asset-meta";
-    if (asset.source === "creation") {
-      meta.textContent = `Upload • ${asset.category}`;
-    } else {
-      meta.textContent = `${asset.category} • ${asset.price} Robux`;
+    if (part.slice(0, index).trim() === name) {
+      return decodeURIComponent(part.slice(index + 1).trim());
     }
-    info.append(name, meta);
-    const actions = document.createElement("div");
-    actions.className = "pending-asset-actions";
-    const acceptBtn = document.createElement("button");
-    acceptBtn.className = "button-primary button-accent";
-    acceptBtn.textContent = "Accept";
-    acceptBtn.addEventListener("click", () => void acceptAsset(asset.id, asset.source, line));
-    const rejectBtn = document.createElement("button");
-    rejectBtn.className = "button-ghost";
-    rejectBtn.textContent = "Reject";
-    rejectBtn.addEventListener("click", () => void rejectAsset(asset.id, asset.source, line));
-    actions.append(acceptBtn, rejectBtn);
-    line.append(info, actions);
-    adminPendingList.appendChild(line);
-  });
-}
-
-async function acceptAsset(id, source, row) {
-  const { ok, result } = await apiCall("POST", "/api/admin/accept-asset", { id, source });
-  if (ok) {
-    row.remove();
-    if (!adminPendingList.children.length) {
-      const line = document.createElement("li");
-      line.className = "empty";
-      line.textContent = "No pending assets. All assets are accepted.";
-      adminPendingList.appendChild(line);
-    }
-  } else {
-    setAdminAcceptStatus(result.error || "Could not accept the asset.", true);
   }
+  return null;
 }
 
-async function rejectAsset(id, source, row) {
-  const { ok, result } = await apiCall("POST", "/api/admin/reject-asset", { id, source });
-  if (ok) {
-    row.remove();
-    if (!adminPendingList.children.length) {
-      const line = document.createElement("li");
-      line.className = "empty";
-      line.textContent = "No pending assets. All assets are accepted.";
-      adminPendingList.appendChild(line);
-    }
-  } else {
-    setAdminAcceptStatus(result.error || "Could not reject the asset.", true);
-  }
+function setSessionCookie(response, token) {
+  const secure = isProduction ? "; Secure" : "";
+  response.setHeader(
+    "Set-Cookie",
+    `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_TTL_SECONDS}${secure}`
+  );
 }
 
-function setAdminAcceptStatus(text, isError) {
-  if (!adminAcceptStatus) return;
-  adminAcceptStatus.textContent = text;
-  adminAcceptStatus.className = `settings-status${isError ? " error" : ""}`;
+function clearSessionCookie(response) {
+  response.setHeader("Set-Cookie", `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
 }
 
-function adminPreviewList(data) {
-  adminImportPreview.textContent = "";
-  const rows = [
-    ["Name", data.name],
-    ["Asset ID", data.assetId],
-    ["Creator", data.creatorName || "Unknown"],
-    ["RAP", data.rap],
-    ["Value", data.value],
-    ["Price (Roblox)", data.price],
-    ["Stock", data.stock === null || data.stock === undefined ? "Unknown" : data.stock],
-    ["Limited", data.isLimitedUnique ? "Limited Unique" : data.isLimited ? "Limited" : "Not Limited"]
-  ];
-  rows.forEach(([label, value]) => {
-    const line = document.createElement("li");
-    const strong = document.createElement("strong");
-    strong.textContent = `${label}: `;
-    line.append(strong, document.createTextNode(String(value ?? "")));
-    adminImportPreview.appendChild(line);
-  });
+async function createSession(response, userId) {
+  const token = crypto.randomBytes(32).toString("hex");
+  await pool.query("INSERT INTO sessions (token, user_id) VALUES ($1, $2)", [token, userId]);
+  setSessionCookie(response, token);
 }
 
-adminImportButton.addEventListener("click", async () => {
-  const asset = adminImportInput.value.trim();
-  if (!asset) {
-    setStatus(adminImportStatus, "Enter a Rolimons link or asset ID.", true);
-    return;
-  }
-  adminImportButton.disabled = true;
-  setStatus(adminImportStatus, "Fetching asset from Rolimons + Roblox...");
-  const { ok, result } = await apiCall("POST", "/api/admin/import", { asset });
-  adminImportButton.disabled = false;
-  if (!ok) {
-    adminImportResult.hidden = true;
-    setStatus(adminImportStatus, result.error || "Could not import that asset.", true);
-    return;
-  }
-  const sources = result.data.sources || {};
-  const sourceNote = [sources.rolimons ? "Rolimons" : null, sources.roblox ? "Roblox" : null].filter(Boolean).join(" + ");
-  setStatus(adminImportStatus, sourceNote ? `Imported from ${sourceNote}.` : "Imported with partial data. Fill in the fields below manually.");
-  adminImportCode.textContent = String(result.code);
-  adminPreviewList(result.data);
-  adminImportResult.hidden = false;
-  adminUpdateCode.value = String(result.code);
-  adminUpdatePrice.value = String(result.data.price || "");
-  adminUpdateRap.value = String(result.data.rap || "");
-  adminUpdateStock.value = result.data.stock === null || result.data.stock === undefined ? "" : String(result.data.stock);
-  adminUpdateCategory.value = result.data.isLimitedUnique ? "limited_unique" : result.data.isLimited ? "limited" : "not_limited";
-  void loadAdminCodes();
-});
+const USER_COLUMNS = `u.id, u.username, u.birthday::text AS birthday, u.gender, u.blurb, u.preferences, u.robux, u.discord_id, u.discord_username, u.created_at`;
+const USER_SELECT = `SELECT ${USER_COLUMNS} FROM users u`;
 
-adminUpdateButton.addEventListener("click", async () => {
-  adminUpdateButton.disabled = true;
-  setStatus(adminUpdateStatus, "Creating catalog item...");
-  const payload = {
-    code: adminUpdateCode.value.trim(),
-    price: adminUpdatePrice.value.trim(),
-    rap: adminUpdateRap.value.trim(),
-    stock: adminUpdateStock.value.trim(),
-    category: adminUpdateCategory.value
+function normalizeUser(row) {
+  const genderMap = { girl: "female", boy: "male" };
+  return {
+    id: row.id,
+    username: row.username,
+    birthday: row.birthday,
+    gender: genderMap[row.gender] || row.gender || null,
+    blurb: row.blurb || "",
+    preferences: row.preferences || {},
+    robux: row.robux,
+    isAdmin: isAdminUsername(row.username),
+    discordId: row.discord_id || "",
+    discordUsername: row.discord_username || "",
+    createdAt: row.created_at
   };
-  const { ok, result } = await apiCall("POST", "/api/admin/update-asset", payload);
-  adminUpdateButton.disabled = false;
-  if (!ok) {
-    setStatus(adminUpdateStatus, result.error || "Could not update the asset.", true);
-    return;
-  }
-  setStatus(adminUpdateStatus, `"${result.item.name}" is now live in the catalog.`);
-  adminImportResult.hidden = true;
-  adminUpdateCode.value = "";
-  adminUpdatePrice.value = "";
-  adminUpdateRap.value = "";
-  adminUpdateStock.value = "";
-  adminUpdateCategory.value = "";
-  void loadAdminCodes();
-  openItemPage(result.item.id);
-});
-
-async function removeItemByCode(refund) {
-  const code = adminDeleteCode.value.trim();
-  if (!code) {
-    setStatus(adminDeleteStatus, "Enter the import code of the item you want to delete.", true);
-    return;
-  }
-  const question = refund
-    ? `Delete the item made from code ${code} and refund every buyer the Robux they spent?`
-    : `Delete the item made from code ${code}? The code is removed too.`;
-  if (!window.confirm(question)) {
-    return;
-  }
-  adminDeleteButton.disabled = true;
-  adminRefundButton.disabled = true;
-  setStatus(adminDeleteStatus, refund ? "Refunding and deleting..." : "Deleting...");
-  const { ok, result } = await apiCall("POST", refund ? "/api/admin/delete-and-refund" : "/api/admin/delete-item", { code });
-  adminDeleteButton.disabled = false;
-  adminRefundButton.disabled = false;
-  if (!ok) {
-    setStatus(adminDeleteStatus, result.error || "Could not delete the item.", true);
-    return;
-  }
-  const removed = result.name ? `"${result.name}" and code ${code} were removed.` : `Code ${code} was removed.`;
-  setStatus(adminDeleteStatus, refund ? `${removed} ${result.refunded} buyer(s) got ${result.totalRobux} Robux back.` : removed);
-  adminDeleteCode.value = "";
-  void loadAdminCodes();
 }
 
-adminDeleteButton.addEventListener("click", () => void removeItemByCode(false));
-adminRefundButton.addEventListener("click", () => void removeItemByCode(true));
-
-itemBackButton.addEventListener("click", showCatalogPage);
-
-const topCreateButton = document.querySelector("#top-create-button");
-const createPage = document.querySelector("#create-page");
-const createTabs = Array.from(document.querySelectorAll("#create-tabs .create-tab"));
-const createTypes = Array.from(document.querySelectorAll("#create-types .create-type"));
-const createNewButton = document.querySelector("#create-new-button");
-const createPaneTitle = document.querySelector("#create-pane-title");
-const createPaneEmpty = document.querySelector("#create-pane-empty");
-const createFileInput = document.querySelector("#create-file-input");
-const createList = document.querySelector("#create-list");
-const createStatus = document.querySelector("#create-status");
-
-let createTab = "mine";
-let createType = createTypes[0];
-let myCreations = [];
-
-const ROW_GLYPHS = { place: "▣", model: "▤", audio: "♫" };
-
-function creationName(creation) {
-  return creation.name || String(creation.filename || "creation").replace(/\.[A-Za-z0-9]{1,5}$/, "");
-}
-
-function closeCreateMenus() {
-  createList.querySelectorAll(".create-row-menu").forEach((menu) => {
-    menu.hidden = true;
-  });
-}
-
-function renderCreatePane() {
-  const plural = createType.dataset.plural;
-  const kind = createType.dataset.kind || "";
-  createNewButton.textContent = `Create New ${createType.dataset.singular}`;
-  createNewButton.disabled = createTab === "group" || !kind;
-  createPaneTitle.textContent = plural;
-  createFileInput.accept = kind ? createType.dataset.exts : "";
-
-  const mine = kind && createTab === "mine" ? myCreations.filter((item) => item.kind === kind) : [];
-  createList.textContent = "";
-  mine.forEach((creation) => {
-    const name = creationName(creation);
-
-    const line = document.createElement("li");
-
-    const thumb = document.createElement("div");
-    thumb.className = "create-thumb";
-    thumb.textContent = ROW_GLYPHS[creation.kind] || "▣";
-
-    const info = document.createElement("div");
-    info.className = "create-row-info";
-    const title = document.createElement("strong");
-    title.className = "create-row-title";
-    title.textContent = name;
-    info.appendChild(title);
-    if (creation.kind === "place") {
-      const startPlace = document.createElement("span");
-      startPlace.className = "create-row-meta";
-      startPlace.textContent = `Start Place:  ${name}`;
-      info.appendChild(startPlace);
-    }
-    const privacy = document.createElement("span");
-    privacy.className = "create-row-meta";
-    privacy.textContent = creation.allow_access === false ? "Private" : "Public";
-    info.appendChild(privacy);
-
-    const settingsWrap = document.createElement("div");
-    settingsWrap.className = "create-row-settings-wrap";
-    const gear = document.createElement("button");
-    gear.type = "button";
-    gear.className = "create-row-settings";
-    gear.setAttribute("aria-label", `Settings for ${name}`);
-    gear.setAttribute("aria-expanded", "false");
-    gear.textContent = "⚙ ▾";
-    const menu = document.createElement("div");
-    menu.className = "create-row-menu";
-    menu.hidden = true;
-    if (creation.kind === "place") {
-      const configure = document.createElement("button");
-      configure.type = "button";
-      configure.textContent = "Configure Game";
-      configure.addEventListener("click", () => {
-        menu.hidden = true;
-        openConfigurePage(creation);
-      });
-      menu.appendChild(configure);
-    }
-    const download = document.createElement("a");
-    download.href = `/api/create/download/${creation.id}`;
-    download.textContent = "Download";
-    menu.appendChild(download);
-    gear.addEventListener("click", () => {
-      const wasOpen = !menu.hidden;
-      closeCreateMenus();
-      menu.hidden = wasOpen;
-      gear.setAttribute("aria-expanded", wasOpen ? "false" : "true");
-    });
-    settingsWrap.append(gear, menu);
-
-    line.append(thumb, info, settingsWrap);
-    createList.appendChild(line);
-  });
-
-  let emptyText = "";
-  if (createTab === "group") {
-    emptyText = "You aren't in any groups.";
-  } else if (!kind) {
-    emptyText = `Uploading ${plural.toLowerCase()} isn't supported yet.`;
-  } else if (!mine.length) {
-    emptyText = `You haven't created any ${plural.toLowerCase()}.`;
-  }
-  createPaneEmpty.textContent = emptyText;
-  createPaneEmpty.hidden = !emptyText;
-}
-
-async function loadMyCreations() {
-  const { ok, result } = await apiCall("GET", "/api/create/mine");
-  myCreations = ok ? result.creations || [] : [];
-  renderCreatePane();
-}
-
-createTabs.forEach((tab) => {
-  tab.addEventListener("click", () => {
-    createTabs.forEach((item) => item.classList.toggle("active", item === tab));
-    createTab = tab.dataset.pane;
-    renderCreatePane();
-  });
-});
-
-createTypes.forEach((type) => {
-  type.addEventListener("click", () => {
-    createTypes.forEach((item) => item.classList.toggle("active", item === type));
-    createType = type;
-    renderCreatePane();
-  });
-});
-
-createNewButton.addEventListener("click", () => {
-  if (!createNewButton.disabled) {
-    createFileInput.click();
-  }
-});
-
-createFileInput.addEventListener("change", async () => {
-  const file = createFileInput.files[0];
-  createFileInput.value = "";
-  if (!file) {
-    return;
-  }
-  createNewButton.disabled = true;
-  setStatus(createStatus, "");
-  const query = new URLSearchParams({ kind: createType.dataset.kind, name: file.name });
+async function requireAuth(request, response, next) {
   try {
-    const response = await fetch(`/api/create/upload?${query}`, {
-      method: "POST",
-      credentials: "same-origin",
-      body: file
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setStatus(createStatus, result.error || "Could not upload the file.", true);
+    const token = readCookie(request, SESSION_COOKIE);
+    if (!token) {
+      return response.status(401).json({ error: "Not signed in." });
+    }
+    const result = await pool.query(
+      `${USER_SELECT} JOIN sessions s ON s.user_id = u.id WHERE s.token = $1`,
+      [token]
+    );
+    const user = result.rows[0];
+    if (!user) {
+      return response.status(401).json({ error: "Your session expired. Please log in again." });
+    }
+    request.sessionToken = token;
+    request.user = normalizeUser(user);
+    return next();
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not verify your session." });
+  }
+}
+
+async function migrate() {
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS blurb TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS preferences JSONB NOT NULL DEFAULT '{}'::jsonb`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS robux INTEGER NOT NULL DEFAULT 500`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_id TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_username TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_key ON users (lower(username))`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id)`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS friend_requests (
+    id SERIAL PRIMARY KEY,
+    requester_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    addressee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (requester_id, addressee_id)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS friendships (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    friend_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, friend_id)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS follows (
+    follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    followee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (follower_id, followee_id)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS catalog_items (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'accessories',
+    genre TEXT NOT NULL DEFAULT '',
+    creator_name TEXT NOT NULL DEFAULT '',
+    creator_type TEXT NOT NULL DEFAULT 'user',
+    currency TEXT NOT NULL DEFAULT 'robux',
+    price INTEGER NOT NULL DEFAULT 0,
+    is_limited BOOLEAN NOT NULL DEFAULT false,
+    is_limited_unique BOOLEAN NOT NULL DEFAULT false,
+    is_new BOOLEAN NOT NULL DEFAULT false,
+    is_featured BOOLEAN NOT NULL DEFAULT false,
+    is_available BOOLEAN NOT NULL DEFAULT true,
+    sales_count INTEGER NOT NULL DEFAULT 0,
+    thumbnail_url TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS rap INTEGER NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS stock INTEGER`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS source_asset_id BIGINT`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS remote_thumbnail_url TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS accepted BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS asset_imports (
+    code SERIAL PRIMARY KEY,
+    asset_id BIGINT NOT NULL,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    catalog_item_id INTEGER REFERENCES catalog_items(id) ON DELETE SET NULL
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS item_ownership (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    catalog_item_id INTEGER NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+    price_paid INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS creations (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    data BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS accepted BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS allow_comments BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS allow_access BOOLEAN NOT NULL DEFAULT true`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS voice_chat BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS genre TEXT NOT NULL DEFAULT 'All'`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS icon BYTEA`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS icon_type TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS thumbnail BYTEA`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS thumbnail_type TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS max_visitors INTEGER NOT NULL DEFAULT 10`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS year INTEGER NOT NULL DEFAULT 2021`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS rig_type TEXT NOT NULL DEFAULT 'R6'`);
+}
+
+const ADMIN_USERNAMES = new Set(["marsargo", "3ymarr", "x_x", "roblox", "builderman", "acia", "tiffany"]);
+
+function isAdminUsername(username) {
+  return ADMIN_USERNAMES.has(String(username || "").trim().toLowerCase());
+}
+
+async function requireAdmin(request, response, next) {
+  if (!isAdminUsername(request.user.username)) {
+    return response.status(403).json({ error: "You do not have access to the admin panel." });
+  }
+  return next();
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const response = await fetch(url, {
+    ...options,
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", ...(options.headers || {}) },
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  if (!response.ok) {
+    throw new Error(`Request to ${url} failed with status ${response.status}`);
+  }
+  return response;
+}
+
+const ASSETS_DIR = path.join(__dirname, "assets");
+
+async function saveAssetImage(assetId, url) {
+  if (!/^https?:\/\//i.test(url || "")) {
+    return null;
+  }
+  fs.mkdirSync(ASSETS_DIR, { recursive: true });
+  const response = await fetchWithTimeout(url, {}, 30000);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer.length) {
+    return null;
+  }
+  const type = response.headers.get("content-type") || "";
+  const ext = type.includes("jpeg") ? "jpg" : type.includes("webp") ? "webp" : type.includes("gif") ? "gif" : "png";
+  const fileName = `${assetId}.${ext}`;
+  await fs.promises.writeFile(path.join(ASSETS_DIR, fileName), buffer);
+  return `/assets/${fileName}`;
+}
+
+async function fetchRobloxThumbnailUrl(assetId) {
+  const result = await fetchWithTimeout(
+    `https://thumbnails.roblox.com/v1/assets?assetIds=${assetId}&size=420x420&format=Png&isCircular=false`
+  );
+  const payload = await result.json();
+  const entry = payload && Array.isArray(payload.data) ? payload.data[0] : null;
+  return entry && entry.imageUrl ? entry.imageUrl : "";
+}
+
+// Hosting platforms wipe files written at runtime whenever they restart, so a
+// missing local photo falls back to the original Roblox CDN copy.
+async function serveAssetWithFallback(response, next, fileName) {
+  const localPath = path.join(ASSETS_DIR, fileName);
+  if (fs.existsSync(localPath)) {
+    return response.sendFile(localPath);
+  }
+  const assetId = Number.parseInt(fileName.split(".")[0], 10);
+  if (Number.isInteger(assetId)) {
+    try {
+      const stored = await pool.query(
+        "SELECT remote_thumbnail_url FROM catalog_items WHERE source_asset_id = $1 AND remote_thumbnail_url <> '' LIMIT 1",
+        [assetId]
+      );
+      let url = stored.rows[0] ? stored.rows[0].remote_thumbnail_url : "";
+      if (!url) {
+        url = await fetchRobloxThumbnailUrl(assetId);
+        if (url) {
+          await pool.query("UPDATE catalog_items SET remote_thumbnail_url = $1 WHERE source_asset_id = $2", [url, assetId]);
+        }
+      }
+      if (url) {
+        return response.redirect(302, url);
+      }
+    } catch (error) {
+      console.error("Asset fallback failed:", error.message);
+    }
+  }
+  return next();
+}
+
+app.post("/api/signup", async (request, response) => {
+  const { username, password, birthday, gender } = request.body;
+
+  if (!username || !password || !birthday) {
+    return response.status(400).json({ error: "Username, password, and birthday are required." });
+  }
+  if (username.trim().length < 3 || !/^[A-Za-z0-9_]+$/.test(username.trim())) {
+    return response.status(400).json({ error: "Username must be 3+ characters using only letters, numbers, or underscores." });
+  }
+  if (password.length < 8) {
+    return response.status(400).json({ error: "Password must be at least 8 characters." });
+  }
+
+  try {
+    const passwordHash = await bcrypt.hash(password, 12);
+    const result = await pool.query(
+      `INSERT INTO users (username, password_hash, birthday, gender)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, username, birthday, gender, created_at, robux`,
+      [username.trim(), passwordHash, birthday, gender || null]
+    );
+    await createSession(response, result.rows[0].id);
+    return response.status(201).json({ user: normalizeUser(result.rows[0]) });
+  } catch (error) {
+    if (error.code === "23505") {
+      return response.status(409).json({ error: "That username is already taken." });
+    }
+    console.error(error);
+    return response.status(500).json({ error: "Could not create the account." });
+  }
+});
+
+app.post("/api/login", async (request, response) => {
+  const { username, password } = request.body;
+
+  if (!username || !password) {
+    return response.status(400).json({ error: "Username and password are required." });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT ${USER_COLUMNS}, u.password_hash FROM users u WHERE u.username = $1`,
+      [username.trim()]
+    );
+    const user = result.rows[0];
+    const passwordMatches = user && await bcrypt.compare(password, user.password_hash);
+
+    if (!passwordMatches) {
+      return response.status(401).json({ error: "Invalid username or password." });
+    }
+    await createSession(response, user.id);
+    const fullUser = await pool.query(`${USER_SELECT} WHERE u.id = $1`, [user.id]);
+    return response.json({ user: normalizeUser(fullUser.rows[0]) });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not log in." });
+  }
+});
+
+app.post("/api/logout", async (request, response) => {
+  try {
+    const token = readCookie(request, SESSION_COOKIE);
+    if (token) {
+      await pool.query("DELETE FROM sessions WHERE token = $1", [token]);
+    }
+    clearSessionCookie(response);
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not log out." });
+  }
+});
+
+app.get("/api/me", requireAuth, (request, response) => {
+  return response.json({ user: request.user });
+});
+
+app.put("/api/me", requireAuth, async (request, response) => {
+  const { blurb, birthday, gender, preferences } = request.body || {};
+  const updates = [];
+  const values = [];
+  let index = 1;
+
+  if (typeof blurb === "string") {
+    updates.push(`blurb = $${index++}`);
+    values.push(blurb.slice(0, 1000));
+  }
+  if (typeof birthday === "string" && /^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
+    updates.push(`birthday = $${index++}`);
+    values.push(birthday);
+  }
+  if (gender === null || gender === "male" || gender === "female") {
+    updates.push(`gender = $${index++}`);
+    values.push(gender);
+  }
+  if (preferences && typeof preferences === "object" && !Array.isArray(preferences)) {
+    updates.push(`preferences = preferences || $${index++}::jsonb`);
+    values.push(JSON.stringify(preferences));
+  }
+
+  if (!updates.length) {
+    return response.status(400).json({ error: "Nothing to update." });
+  }
+
+  try {
+    values.push(request.user.id);
+    await pool.query(`UPDATE users SET ${updates.join(", ")} WHERE id = $${index}`, values);
+    const result = await pool.query(`${USER_SELECT} WHERE u.id = $1`, [request.user.id]);
+    return response.json({ user: normalizeUser(result.rows[0]) });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save your settings." });
+  }
+});
+
+app.get("/api/users/search", requireAuth, async (request, response) => {
+  const query = typeof request.query.q === "string" ? request.query.q.trim() : "";
+  if (!query) {
+    return response.json({ users: [] });
+  }
+  try {
+    const escaped = query.replace(/[\\%_]/g, (character) => `\\${character}`);
+    const result = await pool.query(
+      `SELECT u.id, u.username,
+          EXISTS(SELECT 1 FROM friendships f WHERE f.user_id = $2 AND f.friend_id = u.id) AS is_friend,
+          EXISTS(SELECT 1 FROM friend_requests r WHERE r.requester_id = $2 AND r.addressee_id = u.id) AS request_sent,
+          EXISTS(SELECT 1 FROM follows fl WHERE fl.follower_id = $2 AND fl.followee_id = u.id) AS is_following
+        FROM users u
+        WHERE u.username ILIKE $1 ESCAPE '\\' AND u.id <> $2
+        ORDER BY u.username LIMIT 20`,
+      [`%${escaped}%`, request.user.id]
+    );
+    return response.json({ users: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not search players." });
+  }
+});
+
+const CATALOG_CATEGORY_VALUES = new Set(["featured", "community", "collectibles", "clothing", "body_parts", "gear", "accessories"]);
+
+function catalogString(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function escapeLikePattern(value) {
+  return value.replace(/[!%_]/g, (character) => `!${character}`);
+}
+
+function normalizeCatalogItem(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    genre: row.genre,
+    creatorName: row.creator_name,
+    creatorType: row.creator_type,
+    currency: row.currency,
+    price: row.price,
+    isLimited: row.is_limited,
+    isLimitedUnique: row.is_limited_unique,
+    isNew: row.is_new,
+    isFeatured: row.is_featured,
+    isAvailable: row.is_available,
+    salesCount: row.sales_count,
+    thumbnailUrl: row.thumbnail_url,
+    createdAt: row.created_at
+  };
+}
+
+app.get("/api/catalog", requireAuth, async (request, response) => {
+  const clauses = [];
+  const values = [];
+  const add = (clause, value) => {
+    if (value === undefined) {
+      clauses.push(clause);
       return;
     }
-    await loadMyCreations();
-  } catch {
-    setStatus(createStatus, "The upload was rejected or the server went away.", true);
-  } finally {
-    renderCreatePane();
-  }
-});
-
-function showCreatePage() {
-  homeDefaultContent.hidden = true;
-  searchResultsSection.hidden = true;
-  friendsPage.hidden = true;
-  catalogPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = true;
-  configurePage.hidden = true;
-  createPage.hidden = false;
-  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
-  void loadMyCreations();
-}
-
-topCreateButton.addEventListener("click", showCreatePage);
-
-const configurePage = document.querySelector("#configure-page");
-const configureTabs = Array.from(document.querySelectorAll("#configure-tabs .configure-tab"));
-const configurePaneTitle = document.querySelector("#configure-pane-title");
-const configureBasic = document.querySelector("#configure-basic");
-const configureEmpty = document.querySelector("#configure-empty");
-const configureName = document.querySelector("#configure-name");
-const configureDescription = document.querySelector("#configure-description");
-const configureComments = document.querySelector("#configure-comments");
-const configureAccess = document.querySelector("#configure-access");
-const configureVoice = document.querySelector("#configure-voice");
-const configureGenre = document.querySelector("#configure-genre");
-const configureSaveButton = document.querySelector("#configure-save");
-const configureCancelButton = document.querySelector("#configure-cancel");
-const configureStatus = document.querySelector("#configure-status");
-
-const configureUpload = document.querySelector("#configure-upload");
-const configureUploadFile = document.querySelector("#configure-upload-file");
-const configureUploadButton = document.querySelector("#configure-upload-button");
-const configureUploadStatus = document.querySelector("#configure-upload-status");
-
-const configureIconPane = document.querySelector("#configure-icon");
-const configureIconPreview = document.querySelector("#configure-icon-preview");
-const configureIconImage = document.querySelector("#configure-icon-image");
-const configureIconUpload = document.querySelector("#configure-icon-upload");
-const configureIconFile = document.querySelector("#configure-icon-file");
-const configureIconStatus = document.querySelector("#configure-icon-status");
-
-const configureThumbnails = document.querySelector("#configure-thumbnails");
-const configureThumbPreview = document.querySelector("#configure-thumb-preview");
-const configureThumbImage = document.querySelector("#configure-thumb-image");
-const configureThumbFile = document.querySelector("#configure-thumb-file");
-const configureThumbGenerate = document.querySelector("#configure-thumb-generate");
-const configureThumbStatus = document.querySelector("#configure-thumb-status");
-
-const configureAccessTab = document.querySelector("#configure-access-tab");
-const configureMaxVisitors = document.querySelector("#configure-max-visitors");
-const configureYear = document.querySelector("#configure-year");
-const configureRigType = document.querySelector("#configure-rig-type");
-const configureAccessSave = document.querySelector("#configure-access-save");
-const configureAccessCancel = document.querySelector("#configure-access-cancel");
-const configureAccessStatus = document.querySelector("#configure-access-status");
-
-const CONFIGURE_PANES = {
-  basic: configureBasic,
-  upload: configureUpload,
-  icon: configureIconPane,
-  thumbnails: configureThumbnails,
-  access: configureAccessTab
-};
-
-let configuring = null;
-
-configureGenre.append(
-  ...["All", ...CATALOG_GENRES.map(([, label]) => label)].map((label) => {
-    const option = document.createElement("option");
-    option.value = label;
-    option.textContent = label;
-    return option;
-  })
-);
-
-for (let y = 2024; y >= 2006; y--) {
-  const option = document.createElement("option");
-  option.value = String(y);
-  option.textContent = String(y);
-  configureYear.appendChild(option);
-}
-
-function selectBoolean(select, value) {
-  select.value = value ? "true" : "false";
-}
-
-function refreshConfigureImages() {
-  if (!configuring) return;
-  if (configuring.icon_type) {
-    configureIconImage.src = `/api/create/${configuring.id}/icon?_=${Date.now()}`;
-    configureIconImage.hidden = false;
-    configureIconPreview.querySelector(".configure-icon-placeholder").hidden = true;
-  } else {
-    configureIconImage.hidden = true;
-    configureIconPreview.querySelector(".configure-icon-placeholder").hidden = false;
-  }
-  if (configuring.thumbnail_type) {
-    configureThumbImage.src = `/api/create/${configuring.id}/thumbnail?_=${Date.now()}`;
-    configureThumbImage.hidden = false;
-    configureThumbPreview.querySelector(".configure-icon-placeholder").hidden = true;
-  } else {
-    configureThumbImage.hidden = true;
-    configureThumbPreview.querySelector(".configure-icon-placeholder").hidden = false;
-  }
-}
-
-function openConfigurePage(creation) {
-  configuring = creation;
-  configureName.value = creation.name || creationName(creation);
-  configureDescription.value = creation.description || "";
-  selectBoolean(configureComments, creation.allow_comments);
-  selectBoolean(configureAccess, creation.allow_access !== false);
-  selectBoolean(configureVoice, creation.voice_chat);
-  const genre = creation.genre || "All";
-  if (!Array.from(configureGenre.options).some((option) => option.value === genre)) {
-    const option = document.createElement("option");
-    option.value = genre;
-    option.textContent = genre;
-    configureGenre.appendChild(option);
-  }
-  configureGenre.value = genre;
-  setStatus(configureStatus, "");
-
-  configureMaxVisitors.value = String(creation.max_visitors || 10);
-  configureYear.value = String(creation.year || 2021);
-  configureRigType.value = creation.rig_type || "R6";
-  setStatus(configureAccessStatus, "");
-
-  configureUploadFile.value = "";
-  setStatus(configureUploadStatus, "");
-  setStatus(configureIconStatus, "");
-  setStatus(configureThumbStatus, "");
-  refreshConfigureImages();
-
-  showConfigurePane("basic", "Basic Settings");
-
-  homeDefaultContent.hidden = true;
-  searchResultsSection.hidden = true;
-  friendsPage.hidden = true;
-  catalogPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = true;
-  createPage.hidden = true;
-  configurePage.hidden = false;
-  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
-}
-
-function showConfigurePane(pane, label) {
-  configureTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.pane === pane));
-  configurePaneTitle.textContent = label;
-  for (const [key, el] of Object.entries(CONFIGURE_PANES)) {
-    el.hidden = key !== pane;
-  }
-  configureEmpty.hidden = Boolean(CONFIGURE_PANES[pane]);
-  configureEmpty.textContent = CONFIGURE_PANES[pane] ? "" : `${label} isn't available yet.`;
-}
-
-configureTabs.forEach((tab) => {
-  tab.addEventListener("click", () => showConfigurePane(tab.dataset.pane, tab.dataset.label));
-});
-
-configureSaveButton.addEventListener("click", async () => {
-  if (!configuring) {
-    return;
-  }
-  configureSaveButton.disabled = true;
-  setStatus(configureStatus, "");
-  const { ok, result } = await apiCall("PUT", `/api/create/${configuring.id}`, {
-    name: configureName.value,
-    description: configureDescription.value,
-    allowComments: configureComments.value === "true",
-    allowAccess: configureAccess.value === "true",
-    voiceChat: configureVoice.value === "true",
-    genre: configureGenre.value
-  });
-  configureSaveButton.disabled = false;
-  if (!ok) {
-    setStatus(configureStatus, result.error || "Could not save the settings.", true);
-    return;
-  }
-  Object.assign(configuring, result.creation);
-  showCreatePage();
-});
-
-configureCancelButton.addEventListener("click", showCreatePage);
-
-configureUploadButton.addEventListener("click", async () => {
-  if (!configuring) return;
-  const file = configureUploadFile.files && configureUploadFile.files[0];
-  if (!file) {
-    setStatus(configureUploadStatus, "Pick a .rbxl file first.", true);
-    return;
-  }
-  configureUploadButton.disabled = true;
-  setStatus(configureUploadStatus, "Uploading...");
-  const buffer = await file.arrayBuffer();
-  const { ok, result } = await apiCallRaw("PUT", `/api/create/${configuring.id}/upload?name=${encodeURIComponent(file.name)}`, buffer, "application/octet-stream");
-  configureUploadButton.disabled = false;
-  if (!ok) {
-    setStatus(configureUploadStatus, result.error || "Could not upload the file.", true);
-    return;
-  }
-  Object.assign(configuring, result.creation);
-  configureUploadFile.value = "";
-  setStatus(configureUploadStatus, "File replaced.");
-});
-
-configureIconUpload.addEventListener("click", () => configureIconFile.click());
-configureIconFile.addEventListener("change", async () => {
-  if (!configuring) return;
-  const file = configureIconFile.files && configureIconFile.files[0];
-  if (!file) return;
-  const type = file.type || (file.name.toLowerCase().endsWith(".jpg") || file.name.toLowerCase().endsWith(".jpeg") ? "image/jpeg" : "image/png");
-  configureIconUpload.disabled = true;
-  setStatus(configureIconStatus, "Uploading icon...");
-  const buffer = await file.arrayBuffer();
-  const { ok, result } = await apiCallRaw("POST", `/api/create/${configuring.id}/icon`, buffer, type);
-  configureIconUpload.disabled = false;
-  if (!ok) {
-    setStatus(configureIconStatus, result.error || "Could not upload the icon.", true);
-    return;
-  }
-  Object.assign(configuring, result.creation);
-  refreshConfigureImages();
-  configureIconFile.value = "";
-  setStatus(configureIconStatus, "Icon saved.");
-});
-
-configureThumbFile.addEventListener("change", async () => {
-  if (!configuring) return;
-  const file = configureThumbFile.files && configureThumbFile.files[0];
-  if (!file) return;
-  const type = file.type || (file.name.toLowerCase().endsWith(".jpg") || file.name.toLowerCase().endsWith(".jpeg") ? "image/jpeg" : "image/png");
-  setStatus(configureThumbStatus, "Uploading thumbnail...");
-  const buffer = await file.arrayBuffer();
-  const { ok, result } = await apiCallRaw("POST", `/api/create/${configuring.id}/thumbnail`, buffer, type);
-  if (!ok) {
-    setStatus(configureThumbStatus, result.error || "Could not upload the thumbnail.", true);
-    return;
-  }
-  Object.assign(configuring, result.creation);
-  refreshConfigureImages();
-  configureThumbFile.value = "";
-  setStatus(configureThumbStatus, "Thumbnail saved.");
-});
-
-configureThumbGenerate.addEventListener("click", () => {
-  setStatus(configureThumbStatus, "Auto-generate isn't available yet.", true);
-});
-
-configureAccessSave.addEventListener("click", async () => {
-  if (!configuring) return;
-  configureAccessSave.disabled = true;
-  setStatus(configureAccessStatus, "");
-  const { ok, result } = await apiCall("PUT", `/api/create/${configuring.id}/access`, {
-    maxVisitors: Number(configureMaxVisitors.value),
-    year: Number(configureYear.value),
-    rigType: configureRigType.value
-  });
-  configureAccessSave.disabled = false;
-  if (!ok) {
-    setStatus(configureAccessStatus, result.error || "Could not save the access settings.", true);
-    return;
-  }
-  Object.assign(configuring, result.creation);
-  showCreatePage();
-});
-
-configureAccessCancel.addEventListener("click", showCreatePage);
-
-function renderRobuxPrice(container, price) {
-  const icon = document.createElement("img");
-  icon.src = ROBUX_ICON;
-  icon.alt = "Robux";
-  icon.className = "robux-icon";
-  const amount = document.createElement("span");
-  amount.textContent = String(price);
-  container.append(icon, amount);
-}
-
-async function openItemPage(itemId) {
-  homeDefaultContent.hidden = true;
-  searchResultsSection.hidden = true;
-  friendsPage.hidden = true;
-  catalogPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = false;
-  createPage.hidden = true;
-  configurePage.hidden = true;
-  itemDetail.textContent = "Loading...";
-  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
-
-  const { ok, result } = await apiCall("GET", `/api/catalog/${itemId}`);
-  if (!ok) {
-    itemDetail.textContent = result.error || "Could not load the item.";
-    return;
-  }
-  renderItemDetail(result.item);
-}
-
-const ITEM_TYPE_LABELS = {
-  accessories: "Accessory",
-  collectibles: "Collectible",
-  clothing: "Clothing",
-  body_parts: "Body Part",
-  gear: "Gear",
-  community: "Community Creation"
-};
-const CATALOG_GENRE_LABELS = Object.fromEntries(CATALOG_GENRES);
-
-function renderItemDetail(item) {
-  itemDetail.textContent = "";
-
-  const page = document.createElement("div");
-  page.className = "item-page";
-
-  const thumb = document.createElement("div");
-  thumb.className = "item-page-thumb";
-  if (item.thumbnailUrl) {
-    const image = document.createElement("img");
-    image.src = item.thumbnailUrl;
-    image.alt = item.name;
-    thumb.appendChild(image);
-  } else {
-    const initial = document.createElement("span");
-    initial.className = "catalog-thumb-initial";
-    initial.textContent = (item.name || "?").trim().charAt(0) || "?";
-    thumb.appendChild(initial);
-  }
-  if (item.isLimited || item.isLimitedUnique) {
-    const ribbon = document.createElement("span");
-    ribbon.className = "item-ribbon";
-    ribbon.textContent = item.isLimitedUnique ? "LIMITED U" : "LIMITED";
-    thumb.appendChild(ribbon);
-  }
-  if (item.isNew) {
-    const ribbon = document.createElement("span");
-    ribbon.className = "item-ribbon new";
-    ribbon.textContent = "NEW";
-    thumb.appendChild(ribbon);
-  }
-
-  const info = document.createElement("div");
-  info.className = "item-page-info";
-
-  const name = document.createElement("h2");
-  name.className = "item-page-name";
-  name.textContent = item.name;
-
-  const creator = document.createElement("p");
-  creator.className = "item-page-creator";
-  creator.textContent = "By ";
-  const creatorName = document.createElement("span");
-  creatorName.className = "creator-name";
-  creatorName.textContent = item.creatorName || "Unknown";
-  creator.appendChild(creatorName);
-  if ((item.creatorName || "").toLowerCase() === "roblox") {
-    const verified = document.createElement("span");
-    verified.className = "verified";
-    verified.textContent = " ✔";
-    verified.title = "Verified";
-    creator.appendChild(verified);
-  }
-
-  const rows = document.createElement("dl");
-  rows.className = "item-page-rows";
-
-  const addRow = (label, text) => {
-    const row = document.createElement("div");
-    row.className = "item-row";
-    const term = document.createElement("dt");
-    term.textContent = label;
-    const value = document.createElement("dd");
-    value.textContent = text;
-    row.append(term, value);
-    rows.appendChild(row);
-    return value;
+    values.push(value);
+    clauses.push(clause.replace("$$", `$${values.length}`));
   };
 
-  const priceRow = document.createElement("div");
-  priceRow.className = "item-row";
-  const priceTerm = document.createElement("dt");
-  priceTerm.textContent = "Price";
-  const priceValue = document.createElement("dd");
-  priceValue.className = "item-price-value";
-  if (item.price === 0) {
-    priceValue.textContent = "Free";
-  } else {
-    renderRobuxPrice(priceValue, item.price);
+  const category = catalogString(request.query.category) || "all";
+  if (category === "featured") {
+    add("is_featured = true");
+  } else if (category.startsWith("featured_")) {
+    add("is_featured = true AND category = $$", category.slice("featured_".length));
+  } else if (CATALOG_CATEGORY_VALUES.has(category)) {
+    add("category = $$", category);
   }
-  const buyButton = document.createElement("button");
-  buyButton.type = "button";
-  buyButton.className = "item-buy-button";
-  priceRow.append(priceTerm, priceValue, buyButton);
-  rows.appendChild(priceRow);
 
-  addRow("Type", ITEM_TYPE_LABELS[item.category] || "Item");
-  addRow("Sales", String(item.salesCount ?? 0));
-  const stockValue = addRow("Stock", item.stock === null || item.stock === undefined ? "Unlimited" : String(item.stock));
-  if (item.rap > 0) {
-    addRow("RAP", String(item.rap));
+  const genre = catalogString(request.query.genre);
+  if (genre) {
+    add("genre = $$", genre);
   }
-  addRow("Created", new Date(item.createdAt).toLocaleDateString("en-US"));
-  addRow("Genres", item.genre ? CATALOG_GENRE_LABELS[item.genre] || item.genre : "All");
-  addRow("Description", item.description || "No description.");
 
-  const status = document.createElement("p");
-  status.className = "settings-status item-buy-status";
-  status.setAttribute("role", "status");
+  const creatorType = catalogString(request.query.creatorType);
+  if (creatorType === "user" || creatorType === "group") {
+    add("creator_type = $$", creatorType);
+  }
 
-  const offSale = !item.isAvailable || (item.stock !== null && item.stock !== undefined && item.stock <= 0);
-  if (item.isOwned) {
-    buyButton.textContent = "Owned";
-    buyButton.disabled = true;
-  } else if (offSale) {
-    buyButton.textContent = "Off Sale";
-    buyButton.disabled = true;
-  } else {
-    buyButton.textContent = item.price === 0 ? "Get" : "Buy";
-    buyButton.addEventListener("click", async () => {
-      buyButton.disabled = true;
-      setStatus(status, "Processing purchase...");
-      const { ok, result } = await apiCall("POST", `/api/catalog/${item.id}/purchase`);
-      if (!ok) {
-        if (/already own/i.test(result.error || "")) {
-          buyButton.textContent = "Owned";
-        } else {
-          buyButton.disabled = false;
-        }
-        setStatus(status, result.error || "Could not complete the purchase.", true);
-        return;
-      }
-      setStatus(status, `You bought "${result.itemName}" for ${result.pricePaid} Robux.`);
-      if (currentUser) {
-        currentUser.robux = result.robux;
-        displayUser(currentUser);
-      }
-      stockValue.textContent = result.stock === null ? "Unlimited" : String(result.stock);
-      buyButton.textContent = "Owned";
-      buyButton.disabled = true;
+  const creator = catalogString(request.query.creator);
+  if (creator) {
+    add("creator_name ILIKE $$ ESCAPE '!'", `%${escapeLikePattern(creator)}%`);
+  }
+
+  const currency = catalogString(request.query.currency);
+  if (currency === "robux" || currency === "tickets") {
+    add("currency = $$", currency);
+  }
+
+  if (request.query.free === "1" || request.query.free === "true") {
+    add("price = 0");
+  }
+  const minPrice = Number(request.query.minPrice);
+  if (Number.isFinite(minPrice) && minPrice >= 0) {
+    add("price >= $$", Math.floor(minPrice));
+  }
+  const maxPrice = Number(request.query.maxPrice);
+  if (Number.isFinite(maxPrice) && maxPrice >= 0) {
+    add("price <= $$", Math.floor(maxPrice));
+  }
+
+  const query = catalogString(request.query.q);
+  if (query) {
+    add("name ILIKE $$ ESCAPE '!'", `%${escapeLikePattern(query)}%`);
+  }
+
+  if (request.query.includeUnavailable !== "1" && request.query.includeUnavailable !== "true") {
+    add("is_available = true");
+  }
+
+  add("accepted = true");
+
+  const sort = catalogString(request.query.sort);
+  const orderBy = {
+    price_asc: "price ASC, name ASC",
+    price_desc: "price DESC, name ASC",
+    newest: "created_at DESC",
+    bestsellers: "sales_count DESC, name ASC"
+  }[sort] || "is_featured DESC, sales_count DESC, name ASC";
+
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  try {
+    const result = await pool.query(
+      `SELECT id, name, category, genre, creator_name, creator_type, currency, price,
+         is_limited, is_limited_unique, is_new, is_featured, is_available, sales_count,
+         thumbnail_url, created_at, COUNT(*) OVER() AS total
+       FROM catalog_items ${where} ORDER BY ${orderBy} LIMIT 50`,
+      values
+    );
+    const total = result.rows.length ? Number(result.rows[0].total) : 0;
+    return response.json({ items: result.rows.map(normalizeCatalogItem), total });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load the catalog." });
+  }
+});
+
+app.get("/api/friends", requireAuth, async (request, response) => {
+  const me = request.user.id;
+  try {
+    const incoming = await pool.query(
+      `SELECT fr.id AS request_id, u.id, u.username, fr.created_at
+       FROM friend_requests fr JOIN users u ON u.id = fr.requester_id
+       WHERE fr.addressee_id = $1 ORDER BY fr.created_at DESC`,
+      [me]
+    );
+    const friends = await pool.query(
+      `SELECT u.id, u.username, f.created_at AS friend_since
+       FROM friendships f JOIN users u ON u.id = f.friend_id
+       WHERE f.user_id = $1 ORDER BY u.username`,
+      [me]
+    );
+    const followers = await pool.query(
+      `SELECT u.id, u.username, fo.created_at,
+         EXISTS(SELECT 1 FROM follows fl WHERE fl.follower_id = $1 AND fl.followee_id = u.id) AS following_back,
+         EXISTS(SELECT 1 FROM friendships fr WHERE fr.user_id = $1 AND fr.friend_id = u.id) AS is_friend
+       FROM follows fo JOIN users u ON u.id = fo.follower_id
+       WHERE fo.followee_id = $1 ORDER BY fo.created_at DESC`,
+      [me]
+    );
+    const following = await pool.query(
+      `SELECT u.id, u.username, fo.created_at
+       FROM follows fo JOIN users u ON u.id = fo.followee_id
+       WHERE fo.follower_id = $1 ORDER BY fo.created_at DESC`,
+      [me]
+    );
+    return response.json({
+      requests: incoming.rows,
+      friends: friends.rows,
+      followers: followers.rows,
+      following: following.rows
     });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load friends." });
   }
-
-  info.append(name, creator, rows, status);
-  if (item.sourceAssetId) {
-    const rolimonsLink = document.createElement("a");
-    rolimonsLink.className = "item-rolimons-link";
-    rolimonsLink.href = `https://www.rolimons.com/item/${item.sourceAssetId}`;
-    rolimonsLink.target = "_blank";
-    rolimonsLink.rel = "noopener";
-    rolimonsLink.textContent = "View on Rolimons";
-    info.insertBefore(rolimonsLink, rows);
-  }
-  page.append(thumb, info);
-  itemDetail.appendChild(page);
-}
-
-void initializeSession();
-
-discordConnectButton.addEventListener("click", () => {
-  window.location.href = "/api/discord/connect";
 });
 
-discordUnlinkButton.addEventListener("click", async () => {
-  if (!window.confirm("Remove the Discord link from your account?")) {
-    return;
+app.post("/api/friends/requests", requireAuth, async (request, response) => {
+  const targetId = Number(request.body && request.body.userId);
+  const me = request.user.id;
+  if (!Number.isInteger(targetId)) {
+    return response.status(400).json({ error: "A valid user is required." });
   }
-  discordUnlinkButton.disabled = true;
-  const { ok, result } = await apiCall("POST", "/api/discord/unlink");
-  discordUnlinkButton.disabled = false;
-  if (!ok) {
-    setStatus(accountStatus, result.error || "Could not unlink your Discord account.", true);
-    return;
+  if (targetId === me) {
+    return response.status(400).json({ error: "You cannot add yourself as a friend." });
   }
-  const user = await fetchMe();
-  if (user) {
-    currentUser = user;
-    populateSettings(user);
-  }
-  setStatus(accountStatus, "Discord account removed.");
-});
-
-function handleDiscordRedirectParam() {
-  const params = new URLSearchParams(window.location.search);
-  const discordParam = params.get("discord");
-  if (!discordParam) {
-    return;
-  }
-  params.delete("discord");
-  const query = params.toString();
-  window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
-  void openSettings().then(() => {
-    if (discordParam === "linked") {
-      setStatus(accountStatus, "Discord account connected.");
-    } else if (discordParam === "error") {
-      setStatus(accountStatus, "Could not connect your Discord account. Try again.", true);
-    } else if (discordParam === "ratelimit") {
-      setStatus(accountStatus, "Discord is rate limiting. Please wait a few minutes and try again.", true);
+  try {
+    const target = await pool.query("SELECT id FROM users WHERE id = $1", [targetId]);
+    if (!target.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
     }
-  });
+    const alreadyFriends = await pool.query(
+      "SELECT 1 FROM friendships WHERE user_id = $1 AND friend_id = $2",
+      [me, targetId]
+    );
+    if (alreadyFriends.rows[0]) {
+      return response.status(409).json({ error: "You are already friends with this user." });
+    }
+    const alreadyRequested = await pool.query(
+      "SELECT 1 FROM friend_requests WHERE requester_id = $1 AND addressee_id = $2",
+      [me, targetId]
+    );
+    if (alreadyRequested.rows[0]) {
+      return response.status(409).json({ error: "Friend request already sent." });
+    }
+    const reverseRequest = await pool.query(
+      "SELECT 1 FROM friend_requests WHERE requester_id = $1 AND addressee_id = $2",
+      [targetId, me]
+    );
+    if (reverseRequest.rows[0]) {
+      return response.status(409).json({ error: "This user already sent you a request. Check your Friend Requests." });
+    }
+    await pool.query(
+      "INSERT INTO friend_requests (requester_id, addressee_id) VALUES ($1, $2)",
+      [me, targetId]
+    );
+    return response.status(201).json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not send the friend request." });
+  }
+});
+
+async function respondToFriendRequest(request, response, accept) {
+  const requestId = Number(request.params.id);
+  const me = request.user.id;
+  if (!Number.isInteger(requestId)) {
+    return response.status(400).json({ error: "A valid request is required." });
+  }
+  try {
+    const result = await pool.query(
+      "DELETE FROM friend_requests WHERE id = $1 AND addressee_id = $2 RETURNING requester_id",
+      [requestId, me]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return response.status(404).json({ error: "Request not found." });
+    }
+    if (accept) {
+      await pool.query(
+        "INSERT INTO friendships (user_id, friend_id) VALUES ($1, $2), ($2, $1) ON CONFLICT DO NOTHING",
+        [me, row.requester_id]
+      );
+    }
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: accept ? "Could not accept the request." : "Could not decline the request." });
+  }
 }
-handleDiscordRedirectParam();
+
+app.post("/api/friends/requests/:id/accept", requireAuth, (request, response) => {
+  return respondToFriendRequest(request, response, true);
+});
+
+app.post("/api/friends/requests/:id/decline", requireAuth, (request, response) => {
+  return respondToFriendRequest(request, response, false);
+});
+
+app.post("/api/follows", requireAuth, async (request, response) => {
+  const targetId = Number(request.body && request.body.userId);
+  const me = request.user.id;
+  if (!Number.isInteger(targetId)) {
+    return response.status(400).json({ error: "A valid user is required." });
+  }
+  if (targetId === me) {
+    return response.status(400).json({ error: "You cannot follow yourself." });
+  }
+  try {
+    const target = await pool.query("SELECT id FROM users WHERE id = $1", [targetId]);
+    if (!target.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    await pool.query(
+      "INSERT INTO follows (follower_id, followee_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+      [me, targetId]
+    );
+    return response.status(201).json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not follow this user." });
+  }
+});
+
+app.delete("/api/friends/:userId", requireAuth, async (request, response) => {
+  const targetId = Number(request.params.userId);
+  if (!Number.isInteger(targetId)) {
+    return response.status(400).json({ error: "A valid user is required." });
+  }
+  try {
+    await pool.query(
+      "DELETE FROM friendships WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)",
+      [request.user.id, targetId]
+    );
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not unfriend this user." });
+  }
+});
+
+app.delete("/api/follows/:userId", requireAuth, async (request, response) => {
+  const targetId = Number(request.params.userId);
+  if (!Number.isInteger(targetId)) {
+    return response.status(400).json({ error: "A valid user is required." });
+  }
+  try {
+    await pool.query(
+      "DELETE FROM follows WHERE follower_id = $1 AND followee_id = $2",
+      [request.user.id, targetId]
+    );
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not unfollow this user." });
+  }
+});
+
+app.put("/api/me/username", requireAuth, async (request, response) => {
+  const { newUsername, password } = request.body || {};
+  const username = typeof newUsername === "string" ? newUsername.trim() : "";
+
+  if (username.length < 3 || !/^[A-Za-z0-9_]+$/.test(username)) {
+    return response.status(400).json({ error: "Username must be 3+ characters using only letters, numbers, or underscores." });
+  }
+  if (typeof password !== "string" || !password) {
+    return response.status(400).json({ error: "Confirm your password to change your username." });
+  }
+
+  try {
+    const hashResult = await pool.query("SELECT password_hash FROM users WHERE id = $1", [request.user.id]);
+    const passwordMatches = await bcrypt.compare(password, hashResult.rows[0].password_hash);
+    if (!passwordMatches) {
+      return response.status(401).json({ error: "Password is incorrect." });
+    }
+    const result = await pool.query(
+      "UPDATE users SET username = $1 WHERE id = $2 RETURNING id, username",
+      [username, request.user.id]
+    );
+    return response.json({ user: result.rows[0] });
+  } catch (error) {
+    if (error.code === "23505") {
+      return response.status(409).json({ error: "That username is already taken." });
+    }
+    console.error(error);
+    return response.status(500).json({ error: "Could not change your username." });
+  }
+});
+
+app.put("/api/me/password", requireAuth, async (request, response) => {
+  const { currentPassword, newPassword } = request.body || {};
+
+  if (typeof newPassword !== "string" || newPassword.length < 8) {
+    return response.status(400).json({ error: "New password must be at least 8 characters." });
+  }
+
+  try {
+    const hashResult = await pool.query("SELECT password_hash FROM users WHERE id = $1", [request.user.id]);
+    const passwordMatches = await bcrypt.compare(currentPassword || "", hashResult.rows[0].password_hash);
+    if (!passwordMatches) {
+      return response.status(401).json({ error: "Current password is incorrect." });
+    }
+    const newHash = await bcrypt.hash(newPassword, 12);
+    await pool.query("UPDATE users SET password_hash = $1 WHERE id = $2", [newHash, request.user.id]);
+    await pool.query("DELETE FROM sessions WHERE user_id = $1 AND token <> $2", [request.user.id, request.sessionToken]);
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not change your password." });
+  }
+});
+
+function parseAssetId(input) {
+  const text = String(input || "").trim();
+  const patterns = [
+    /rolimons\.com\/item\/(\d+)/i,
+    /roblox\.com\/[^/\s]*catalog\/(\d+)/i,
+    /roblox\.com\/library\/(\d+)/i,
+    /\/items\/(\d+)/i
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return match[1];
+    }
+  }
+  return /^\d+$/.test(text) ? text : null;
+}
+
+app.post("/api/admin/import", requireAuth, requireAdmin, async (request, response) => {
+  const assetId = parseAssetId(request.body && request.body.asset);
+  if (!assetId) {
+    return response.status(400).json({ error: "Enter a Rolimons item link or an asset ID." });
+  }
+
+  const data = {
+    assetId,
+    name: "",
+    description: "",
+    creatorName: "",
+    creatorType: "user",
+    isLimited: false,
+    isLimitedUnique: false,
+    price: 0,
+    rap: 0,
+    value: 0,
+    stock: null,
+    thumbnailUrl: "",
+    sources: { rolimons: false, roblox: false, thumbnail: false }
+  };
+
+  try {
+    const result = await fetchWithTimeout("https://api.rolimons.com/items/v1/itemdetails");
+    const payload = await result.json();
+    const entry = payload && payload.items ? payload.items[assetId] : null;
+    if (entry) {
+      data.sources.rolimons = true;
+      if (Array.isArray(entry)) {
+        // [name, acronym, rap, value, defaultValue, demand, trend, projected, hyped, rare]; -1 means "not available"
+        data.name = entry[0] || data.name;
+        data.rap = Math.max(Number(entry[2]) || 0, 0);
+        data.value = Math.max(Number(entry[3]) || 0, 0);
+      } else if (typeof entry === "object") {
+        data.name = entry.name || data.name;
+        data.rap = Math.max(Number(entry.rap) || 0, 0);
+        data.value = Math.max(Number(entry.value) || 0, 0);
+      }
+    }
+  } catch (error) {
+    console.error("Rolimons lookup failed:", error.message);
+  }
+
+  try {
+    const result = await fetchWithTimeout(`https://economy.roblox.com/v2/assets/${assetId}/details`);
+    const details = await result.json();
+    if (details && details.AssetId) {
+      data.sources.roblox = true;
+      data.name = details.Name || data.name;
+      data.description = details.Description || "";
+      data.creatorName = (details.Creator && details.Creator.Name) || "";
+      data.creatorType = details.Creator && String(details.Creator.CreatorType).toLowerCase() === "group" ? "group" : "user";
+      data.isLimited = Boolean(details.IsLimited);
+      data.isLimitedUnique = Boolean(details.IsLimitedUnique);
+      data.price = Number(details.PriceInRobux) || 0;
+      if (details.Remaining !== null && details.Remaining !== undefined) {
+        data.stock = Number(details.Remaining);
+      }
+    }
+  } catch (error) {
+    console.error("Roblox catalog lookup failed:", error.message);
+  }
+
+  try {
+    const result = await fetchWithTimeout(
+      `https://thumbnails.roblox.com/v1/assets?assetIds=${assetId}&size=420x420&format=Png&isCircular=false`
+    );
+    const payload = await result.json();
+    const entry = payload && Array.isArray(payload.data) ? payload.data[0] : null;
+    if (entry && entry.imageUrl) {
+      data.sources.thumbnail = true;
+      data.thumbnailUrl = entry.imageUrl;
+    }
+  } catch (error) {
+    console.error("Thumbnail lookup failed:", error.message);
+  }
+
+  if (data.stock === null) {
+    try {
+      const result = await fetchWithTimeout(`https://www.rolimons.com/item/${assetId}`, {}, 25000);
+      const html = await result.text();
+      const match = html.match(/"stock":\s*(-?\d+|null)/);
+      if (match && match[1] !== "null" && Number(match[1]) >= 0) {
+        data.stock = Number(match[1]);
+      }
+    } catch (error) {
+      console.error("Rolimons stock lookup failed:", error.message);
+    }
+  }
+
+  if (!data.name) {
+    data.name = `Asset ${assetId}`;
+  }
+
+  try {
+    const result = await pool.query(
+      "INSERT INTO asset_imports (asset_id, data) VALUES ($1, $2) RETURNING code",
+      [assetId, JSON.stringify(data)]
+    );
+    return response.status(201).json({ code: result.rows[0].code, data });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save the import." });
+  }
+});
+
+const ASSET_CATEGORY_VALUES = new Set(["not_limited", "limited", "limited_unique"]);
+
+app.post("/api/admin/update-asset", requireAuth, requireAdmin, async (request, response) => {
+  const body = request.body || {};
+  const code = Number(body.code);
+  if (!Number.isInteger(code) || code < 1 || code > 2147483647) {
+    return response.status(400).json({ error: "Enter the import code you received (the small number from the import step, not the asset ID)." });
+  }
+  const category = String(body.category || "");
+  if (!ASSET_CATEGORY_VALUES.has(category)) {
+    return response.status(400).json({ error: "Pick a category: Not Limited, Limited, or Limited Unique." });
+  }
+  const price = Number(body.price);
+  if (!Number.isFinite(price) || price < 0) {
+    return response.status(400).json({ error: "Robux price must be 0 or more." });
+  }
+  const rap = Number(body.rap);
+  if (!Number.isFinite(rap) || rap < 0) {
+    return response.status(400).json({ error: "RAP must be 0 or more." });
+  }
+  let stock = null;
+  const rawStock = body.stock;
+  if (rawStock !== "" && rawStock !== null && rawStock !== undefined) {
+    stock = Number(rawStock);
+    if (!Number.isInteger(stock) || stock < 0) {
+      return response.status(400).json({ error: "Stock must be a whole number, or left empty for unlimited." });
+    }
+  }
+
+  try {
+    const importResult = await pool.query("SELECT * FROM asset_imports WHERE code = $1", [code]);
+    const importRow = importResult.rows[0];
+    if (!importRow) {
+      return response.status(404).json({ error: "No import found with that code." });
+    }
+
+    const data = importRow.data || {};
+    const isLimited = category !== "not_limited";
+    const isLimitedUnique = category === "limited_unique";
+    const values = [
+      data.name || `Asset ${importRow.asset_id}`,
+      data.description || "",
+      isLimited ? "collectibles" : "accessories",
+      data.creatorName || "",
+      data.creatorType === "group" ? "group" : "user",
+      Math.floor(price),
+      Math.floor(rap),
+      stock,
+      isLimited,
+      isLimitedUnique,
+      stock === null || stock > 0,
+      data.thumbnailUrl || "",
+      importRow.asset_id,
+      data.thumbnailUrl || ""
+    ];
+    // Codes never expire: re-submitting one refreshes the item it already made.
+    const itemResult = importRow.catalog_item_id
+      ? await pool.query(
+          `UPDATE catalog_items SET
+             name = $1, description = $2, category = $3, creator_name = $4, creator_type = $5,
+             currency = 'robux', price = $6, rap = $7, stock = $8, is_limited = $9,
+             is_limited_unique = $10, is_available = $11,
+             thumbnail_url = COALESCE(NULLIF($12, ''), thumbnail_url),
+             source_asset_id = $13,
+             remote_thumbnail_url = COALESCE(NULLIF($14, ''), remote_thumbnail_url)
+           WHERE id = $15 RETURNING *`,
+          [...values, importRow.catalog_item_id]
+        )
+      : await pool.query(
+          `INSERT INTO catalog_items
+             (name, description, category, creator_name, creator_type, currency, price, rap, stock,
+              is_limited, is_limited_unique, is_new, is_available, thumbnail_url, source_asset_id, remote_thumbnail_url)
+           VALUES ($1, $2, $3, $4, $5, 'robux', $6, $7, $8, $9, $10, true, $11, $12, $13, $14)
+           RETURNING *`,
+          values
+        );
+    await pool.query("UPDATE asset_imports SET catalog_item_id = $1 WHERE code = $2", [itemResult.rows[0].id, code]);
+    const row = itemResult.rows[0];
+    let thumbnailUrl = row.thumbnail_url;
+    if (thumbnailUrl.startsWith("http")) {
+      try {
+        const localUrl = await saveAssetImage(importRow.asset_id, thumbnailUrl);
+        if (localUrl) {
+          thumbnailUrl = localUrl;
+          await pool.query("UPDATE catalog_items SET thumbnail_url = $1 WHERE id = $2", [localUrl, row.id]);
+        }
+      } catch (error) {
+        console.error("Asset image download failed:", error.message);
+      }
+    }
+    return response.status(201).json({
+      item: { ...normalizeCatalogItem(row), thumbnailUrl, description: row.description, rap: row.rap, stock: row.stock }
+    });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not create the catalog item." });
+  }
+});
+
+app.get("/api/discord/connect", requireAuth, async (request, response) => {
+  if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
+    return response.status(400).json({ error: "Discord linking is not configured on this server yet." });
+  }
+  const state = signDiscordState(request.user.id);
+  const url = new URL("https://discord.com/oauth2/authorize");
+  url.searchParams.set("client_id", DISCORD_CLIENT_ID);
+  url.searchParams.set("redirect_uri", DISCORD_REDIRECT_URI);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", "identify");
+  url.searchParams.set("state", state);
+  return response.redirect(302, url.toString());
+});
+
+app.get("/api/discord/callback", async (request, response) => {
+  const { code, state } = request.query;
+  const userId = verifyDiscordState(state);
+  if (!userId) {
+    console.error("Discord callback: invalid state", { state: String(state || "").slice(0, 20) });
+    return response.redirect(302, "/?discord=error");
+  }
+  try {
+    const tokenResponse = await fetch("https://discord.com/api/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: DISCORD_CLIENT_ID,
+        client_secret: DISCORD_CLIENT_SECRET,
+        grant_type: "authorization_code",
+        code: String(code || ""),
+        redirect_uri: DISCORD_REDIRECT_URI
+      }).toString()
+    });
+    const tokenPayload = await tokenResponse.json();
+    if (!tokenResponse.ok || !tokenPayload.access_token) {
+      console.error("Discord token exchange failed:", tokenResponse.status, JSON.stringify(tokenPayload).slice(0, 200));
+      if (tokenResponse.status === 429) {
+        return response.redirect(302, "/?discord=ratelimit");
+      }
+      return response.redirect(302, "/?discord=error");
+    }
+    const discordResponse = await fetch("https://discord.com/api/users/@me", {
+      headers: { Authorization: `Bearer ${tokenPayload.access_token}` }
+    });
+    const discordUser = await discordResponse.json();
+    if (!discordResponse.ok || !discordUser.id) {
+      console.error("Discord user fetch failed:", discordResponse.status, JSON.stringify(discordUser).slice(0, 200));
+      return response.redirect(302, "/?discord=error");
+    }
+    await pool.query("UPDATE users SET discord_id = $1, discord_username = $2 WHERE id = $3", [
+      String(discordUser.id),
+      discordUser.global_name || discordUser.username || "",
+      userId
+    ]);
+    console.log("Discord linked successfully for user", userId, "discord:", discordUser.id);
+    return response.redirect(302, "/?discord=linked");
+  } catch (error) {
+    console.error("Discord link failed:", error.message);
+    return response.redirect(302, "/?discord=error");
+  }
+});
+
+app.post("/api/discord/unlink", requireAuth, async (request, response) => {
+  try {
+    await pool.query("UPDATE users SET discord_id = '', discord_username = '' WHERE id = $1", [request.user.id]);
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not unlink your Discord account." });
+  }
+});
+
+app.post("/api/admin/delete-item", requireAuth, requireAdmin, async (request, response) => {
+  const code = Number((request.body || {}).code);
+  if (!Number.isInteger(code) || code < 1 || code > 2147483647) {
+    return response.status(400).json({ error: "Enter the import code of the item you want to delete." });
+  }
+  try {
+    const importResult = await pool.query("SELECT catalog_item_id FROM asset_imports WHERE code = $1", [code]);
+    const importRow = importResult.rows[0];
+    if (!importRow) {
+      return response.status(404).json({ error: "No import found with that code." });
+    }
+    let name = null;
+    if (importRow.catalog_item_id) {
+      const deleted = await pool.query("DELETE FROM catalog_items WHERE id = $1 RETURNING name", [importRow.catalog_item_id]);
+      name = deleted.rows[0] ? deleted.rows[0].name : null;
+    }
+    await pool.query("DELETE FROM asset_imports WHERE code = $1", [code]);
+    return response.json({ ok: true, name });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not delete the item." });
+  }
+});
+
+app.post("/api/admin/delete-and-refund", requireAuth, requireAdmin, async (request, response) => {
+  const code = Number((request.body || {}).code);
+  if (!Number.isInteger(code) || code < 1 || code > 2147483647) {
+    return response.status(400).json({ error: "Enter the import code of the item you want to delete." });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const importResult = await client.query("SELECT catalog_item_id FROM asset_imports WHERE code = $1", [code]);
+    const importRow = importResult.rows[0];
+    if (!importRow) {
+      await client.query("ROLLBACK");
+      return response.status(404).json({ error: "No import found with that code." });
+    }
+    if (!importRow.catalog_item_id) {
+      await client.query("ROLLBACK");
+      return response.status(400).json({ error: "That code has no item in the catalog, so there is nothing to refund. Use Delete instead." });
+    }
+    // Locking the item row makes any in-flight purchase wait, so no buyer can be
+    // added after the refunds are totalled but before the ownership rows cascade away.
+    const itemResult = await client.query("SELECT name FROM catalog_items WHERE id = $1 FOR UPDATE", [importRow.catalog_item_id]);
+    const item = itemResult.rows[0];
+    if (!item) {
+      await client.query("ROLLBACK");
+      return response.status(404).json({ error: "The item made from that code is no longer in the catalog." });
+    }
+    const refundResult = await client.query(
+      `UPDATE users u SET robux = u.robux + r.total
+       FROM (
+         SELECT user_id, SUM(price_paid)::int AS total
+         FROM item_ownership WHERE catalog_item_id = $1 GROUP BY user_id
+       ) r
+       WHERE u.id = r.user_id
+       RETURNING u.username, r.total`,
+      [importRow.catalog_item_id]
+    );
+    await client.query("DELETE FROM catalog_items WHERE id = $1", [importRow.catalog_item_id]);
+    await client.query("DELETE FROM asset_imports WHERE code = $1", [code]);
+    await client.query("COMMIT");
+    const totalRobux = refundResult.rows.reduce((sum, row) => sum + row.total, 0);
+    return response.json({ ok: true, name: item.name, refunded: refundResult.rows.length, totalRobux });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(error);
+    return response.status(500).json({ error: "Could not refund and delete the item." });
+  } finally {
+    client.release();
+  }
+});
+
+app.get("/api/admin/imports", requireAuth, requireAdmin, async (request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT i.code, i.asset_id, i.data->>'name' AS name, i.catalog_item_id, i.created_at
+       FROM asset_imports i ORDER BY i.code DESC LIMIT 50`
+    );
+    return response.json({ imports: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load the import codes." });
+  }
+});
+
+app.get("/api/admin/pending-assets", requireAuth, requireAdmin, async (request, response) => {
+  try {
+    const catalogResult = await pool.query(
+      `SELECT id, name, 'catalog' AS item_type, category, price, created_at
+       FROM catalog_items WHERE accepted = false AND creator_type = 'user'`
+    );
+    const creationResult = await pool.query(
+      `SELECT id, COALESCE(NULLIF(filename, ''), 'Unnamed') AS name, kind AS item_type, kind AS category, 0 AS price, created_at
+       FROM creations WHERE accepted = false`
+    );
+    const combined = [
+      ...catalogResult.rows.map((row) => ({ ...row, source: "catalog" })),
+      ...creationResult.rows.map((row) => ({ ...row, source: "creation" }))
+    ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 50);
+    return response.json({ assets: combined });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load pending assets." });
+  }
+});
+
+app.post("/api/admin/accept-asset", requireAuth, requireAdmin, async (request, response) => {
+  const body = request.body || {};
+  const id = Number(body.id);
+  const source = body.source || "catalog";
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid asset ID is required." });
+  }
+  try {
+    if (source === "creation") {
+      const result = await pool.query(
+        `UPDATE creations SET accepted = true WHERE id = $1 RETURNING id, kind, filename`,
+        [id]
+      );
+      if (!result.rows[0]) {
+        return response.status(404).json({ error: "Creation not found." });
+      }
+      return response.json({ ok: true, asset: result.rows[0] });
+    }
+    const result = await pool.query(
+      `UPDATE catalog_items SET accepted = true WHERE id = $1 RETURNING id, name`,
+      [id]
+    );
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "Asset not found." });
+    }
+    return response.json({ ok: true, asset: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not accept the asset." });
+  }
+});
+
+app.post("/api/admin/reject-asset", requireAuth, requireAdmin, async (request, response) => {
+  const body = request.body || {};
+  const id = Number(body.id);
+  const source = body.source || "catalog";
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid asset ID is required." });
+  }
+  try {
+    if (source === "creation") {
+      const result = await pool.query(
+        `DELETE FROM creations WHERE id = $1 AND accepted = false RETURNING id`,
+        [id]
+      );
+      if (!result.rows[0]) {
+        return response.status(404).json({ error: "Creation not found or already accepted." });
+      }
+      return response.json({ ok: true });
+    }
+    const result = await pool.query(
+      `DELETE FROM catalog_items WHERE id = $1 AND accepted = false RETURNING id`,
+      [id]
+    );
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "Asset not found or already accepted." });
+    }
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not reject the asset." });
+  }
+});
+
+app.get("/api/catalog/by-code/:code", requireAuth, async (request, response) => {
+  const code = Number(request.params.code);
+  if (!Number.isInteger(code) || code < 1 || code > 2147483647) {
+    return response.status(400).json({ error: "Enter a valid item code." });
+  }
+  try {
+    const result = await pool.query("SELECT catalog_item_id FROM asset_imports WHERE code = $1", [code]);
+    const itemId = result.rows[0] ? result.rows[0].catalog_item_id : null;
+    if (!itemId) {
+      return response.status(404).json({ error: "No item matches that code." });
+    }
+    return response.json({ itemId });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not look up that code." });
+  }
+});
+
+app.get("/api/catalog/:id", requireAuth, async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid item is required." });
+  }
+  try {
+    const result = await pool.query(
+      `SELECT id, name, description, category, genre, creator_name, creator_type, currency, price,
+         rap, stock, is_limited, is_limited_unique, is_new, is_featured, is_available, sales_count,
+         thumbnail_url, source_asset_id, created_at
+       FROM catalog_items WHERE id = $1`,
+      [id]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return response.status(404).json({ error: "Item not found." });
+    }
+    const ownedResult = await pool.query(
+      "SELECT 1 FROM item_ownership WHERE user_id = $1 AND catalog_item_id = $2",
+      [request.user.id, id]
+    );
+    return response.json({
+      item: {
+        ...normalizeCatalogItem(row),
+        description: row.description,
+        rap: row.rap,
+        stock: row.stock,
+        sourceAssetId: row.source_asset_id,
+        isOwned: Boolean(ownedResult.rows[0])
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load the item." });
+  }
+});
+
+const UPLOAD_KINDS = {
+  place: [".rbxl"],
+  model: [".rbxm"],
+  audio: [".ogg", ".mp3"]
+};
+const UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
+
+function sanitizeFileName(value) {
+  const base = path.basename(String(value || "").replace(/\\/g, "/")).slice(0, 120);
+  return base.replace(/[^A-Za-z0-9 ._()\[\}-]/g, "_").replace(/^\.+/, "") || "creation";
+}
+
+app.post("/api/create/upload", requireAuth, (request, response, next) => {
+  express.raw({ type: () => true, limit: UPLOAD_LIMIT_BYTES })(request, response, (error) => {
+    if (error) {
+      return response.status(413).json({ error: `The file must be smaller than ${Math.round(UPLOAD_LIMIT_BYTES / 1048576)} MB.` });
+    }
+    return next();
+  });
+}, async (request, response) => {
+  const kind = String((request.query || {}).kind || "");
+  const allowed = UPLOAD_KINDS[kind];
+  if (!allowed) {
+    return response.status(400).json({ error: "That kind of creation cannot be uploaded." });
+  }
+  const fileName = sanitizeFileName((request.query || {}).name);
+  const ext = path.extname(fileName).toLowerCase();
+  if (!allowed.includes(ext)) {
+    return response.status(400).json({ error: `A ${kind} file must end in ${allowed.join(" or ")}.` });
+  }
+  if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+    return response.status(400).json({ error: "No file was received." });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO creations (user_id, kind, filename, size, data, accepted)
+       VALUES ($1, $2, $3, $4, $5, false)
+       RETURNING id, kind, filename, size, created_at`,
+      [request.user.id, kind, fileName, request.body.length, request.body]
+    );
+    return response.json({ ok: true, creation: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save the file." });
+  }
+});
+
+const CREATION_FIELDS = `id, kind, filename, size, name, description, allow_comments, allow_access, voice_chat, genre, icon_type, thumbnail_type, max_visitors, year, rig_type, created_at`;
+
+app.get("/api/create/mine", requireAuth, async (request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT ${CREATION_FIELDS}
+       FROM creations WHERE user_id = $1 ORDER BY id DESC LIMIT 100`,
+      [request.user.id]
+    );
+    return response.json({ creations: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load your creations." });
+  }
+});
+
+app.get("/api/create/recommended", async (request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, name, icon_type, created_at
+       FROM creations WHERE kind = 'place' AND accepted = true
+       ORDER BY created_at DESC LIMIT 20`
+    );
+    return response.json({ creations: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load recommended games." });
+  }
+});
+
+function settingText(value, limit) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text.slice(0, limit);
+}
+
+app.put("/api/create/:id", requireAuth, async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid creation is required." });
+  }
+  const body = request.body || {};
+  const name = settingText(body.name, 100);
+  if (!name) {
+    return response.status(400).json({ error: "A game needs a name." });
+  }
+  const description = settingText(body.description, 1000);
+  const genre = settingText(body.genre, 40) || "All";
+
+  try {
+    const ownerResult = await pool.query("SELECT user_id, kind FROM creations WHERE id = $1", [id]);
+    const owner = ownerResult.rows[0];
+    if (!owner) {
+      return response.status(404).json({ error: "That creation no longer exists." });
+    }
+    if (owner.user_id !== request.user.id && !isAdminUsername(request.user.username)) {
+      return response.status(403).json({ error: "That creation belongs to someone else." });
+    }
+    if (owner.kind !== "place") {
+      return response.status(400).json({ error: "Only games have basic settings." });
+    }
+    const result = await pool.query(
+      `UPDATE creations
+       SET name = $1, description = $2, allow_comments = $3, allow_access = $4, voice_chat = $5, genre = $6
+       WHERE id = $7
+       RETURNING ${CREATION_FIELDS}`,
+      [name, description, Boolean(body.allowComments), Boolean(body.allowAccess), Boolean(body.voiceChat), genre, id]
+    );
+    return response.json({ ok: true, creation: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save the settings." });
+  }
+});
+
+const MAX_VISITORS_OPTIONS = [10, 25, 50, 100, 150, 200];
+const RIG_TYPES = ["R6", "R15"];
+const VALID_YEARS = new Set(Array.from({ length: 20 }, (_, i) => 2006 + i));
+
+app.put("/api/create/:id/access", requireAuth, async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid creation is required." });
+  }
+  const body = request.body || {};
+  const maxVisitors = Number(body.maxVisitors);
+  if (!MAX_VISITORS_OPTIONS.includes(maxVisitors)) {
+    return response.status(400).json({ error: "Pick a valid maximum visitor count." });
+  }
+  const year = Number(body.year);
+  if (!VALID_YEARS.has(year)) {
+    return response.status(400).json({ error: "Pick a valid year." });
+  }
+  const rigType = String(body.rigType || "").trim();
+  if (!RIG_TYPES.includes(rigType)) {
+    return response.status(400).json({ error: "Pick a valid rig type." });
+  }
+  try {
+    const ownerResult = await pool.query("SELECT user_id, kind FROM creations WHERE id = $1", [id]);
+    const owner = ownerResult.rows[0];
+    if (!owner) {
+      return response.status(404).json({ error: "That creation no longer exists." });
+    }
+    if (owner.user_id !== request.user.id && !isAdminUsername(request.user.username)) {
+      return response.status(403).json({ error: "That creation belongs to someone else." });
+    }
+    if (owner.kind !== "place") {
+      return response.status(400).json({ error: "Only games have access settings." });
+    }
+    const result = await pool.query(
+      `UPDATE creations SET max_visitors = $1, year = $2, rig_type = $3 WHERE id = $4 RETURNING ${CREATION_FIELDS}`,
+      [maxVisitors, year, rigType, id]
+    );
+    return response.json({ ok: true, creation: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save the access settings." });
+  }
+});
+
+function rawUpload(handler) {
+  return (request, response, next) => {
+    express.raw({ type: () => true, limit: UPLOAD_LIMIT_BYTES })(request, response, (error) => {
+      if (error) {
+        return response.status(413).json({ error: `The file must be smaller than ${Math.round(UPLOAD_LIMIT_BYTES / 1048576)} MB.` });
+      }
+      return next();
+    });
+  };
+}
+
+app.put("/api/create/:id/upload", requireAuth, rawUpload(), async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid creation is required." });
+  }
+  if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+    return response.status(400).json({ error: "No file was received." });
+  }
+  const fileName = sanitizeFileName(String((request.query || {}).name || "place.rbxl"));
+  const ext = path.extname(fileName).toLowerCase();
+  if (ext !== ".rbxl") {
+    return response.status(400).json({ error: "A game file must end in .rbxl." });
+  }
+  try {
+    const ownerResult = await pool.query("SELECT user_id, kind FROM creations WHERE id = $1", [id]);
+    const owner = ownerResult.rows[0];
+    if (!owner) {
+      return response.status(404).json({ error: "That creation no longer exists." });
+    }
+    if (owner.user_id !== request.user.id && !isAdminUsername(request.user.username)) {
+      return response.status(403).json({ error: "That creation belongs to someone else." });
+    }
+    if (owner.kind !== "place") {
+      return response.status(400).json({ error: "Only games can be replaced." });
+    }
+    const result = await pool.query(
+      `UPDATE creations SET data = $1, filename = $2, size = $3 WHERE id = $4 RETURNING ${CREATION_FIELDS}`,
+      [request.body, fileName, request.body.length, id]
+    );
+    return response.json({ ok: true, creation: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not replace the file." });
+  }
+});
+
+const ICON_TYPES = new Set(["image/png", "image/jpeg"]);
+
+app.post("/api/create/:id/icon", requireAuth, rawUpload(), async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid creation is required." });
+  }
+  if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+    return response.status(400).json({ error: "No file was received." });
+  }
+  const contentType = String(request.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+  if (!ICON_TYPES.has(contentType)) {
+    return response.status(400).json({ error: "The icon must be a PNG or JPG image." });
+  }
+  try {
+    const ownerResult = await pool.query("SELECT user_id, kind FROM creations WHERE id = $1", [id]);
+    const owner = ownerResult.rows[0];
+    if (!owner) {
+      return response.status(404).json({ error: "That creation no longer exists." });
+    }
+    if (owner.user_id !== request.user.id && !isAdminUsername(request.user.username)) {
+      return response.status(403).json({ error: "That creation belongs to someone else." });
+    }
+    if (owner.kind !== "place") {
+      return response.status(400).json({ error: "Only games can have icons." });
+    }
+    const ext = contentType === "image/jpeg" ? "jpg" : "png";
+    const result = await pool.query(
+      `UPDATE creations SET icon = $1, icon_type = $2 WHERE id = $3 RETURNING ${CREATION_FIELDS}`,
+      [request.body, ext, id]
+    );
+    return response.json({ ok: true, creation: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save the icon." });
+  }
+});
+
+app.get("/api/create/:id/icon", async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).end();
+  }
+  try {
+    const result = await pool.query("SELECT icon, icon_type FROM creations WHERE id = $1 AND icon IS NOT NULL AND accepted = true", [id]);
+    const row = result.rows[0];
+    if (!row) {
+      return response.status(404).end();
+    }
+    response.setHeader("Content-Type", row.icon_type === "jpg" ? "image/jpeg" : "image/png");
+    response.setHeader("Content-Length", row.icon.length);
+    response.setHeader("Cache-Control", "public, max-age=300");
+    return response.end(row.icon);
+  } catch (error) {
+    console.error(error);
+    return response.status(500).end();
+  }
+});
+
+app.post("/api/create/:id/thumbnail", requireAuth, rawUpload(), async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid creation is required." });
+  }
+  if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+    return response.status(400).json({ error: "No file was received." });
+  }
+  const contentType = String(request.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+  if (!ICON_TYPES.has(contentType)) {
+    return response.status(400).json({ error: "The thumbnail must be a PNG or JPG image." });
+  }
+  try {
+    const ownerResult = await pool.query("SELECT user_id, kind FROM creations WHERE id = $1", [id]);
+    const owner = ownerResult.rows[0];
+    if (!owner) {
+      return response.status(404).json({ error: "That creation no longer exists." });
+    }
+    if (owner.user_id !== request.user.id && !isAdminUsername(request.user.username)) {
+      return response.status(403).json({ error: "That creation belongs to someone else." });
+    }
+    if (owner.kind !== "place") {
+      return response.status(400).json({ error: "Only games can have thumbnails." });
+    }
+    const ext = contentType === "image/jpeg" ? "jpg" : "png";
+    const result = await pool.query(
+      `UPDATE creations SET thumbnail = $1, thumbnail_type = $2 WHERE id = $3 RETURNING ${CREATION_FIELDS}`,
+      [request.body, ext, id]
+    );
+    return response.json({ ok: true, creation: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save the thumbnail." });
+  }
+});
+
+app.get("/api/create/:id/thumbnail", async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).end();
+  }
+  try {
+    const result = await pool.query("SELECT thumbnail, thumbnail_type FROM creations WHERE id = $1 AND thumbnail IS NOT NULL AND accepted = true", [id]);
+    const row = result.rows[0];
+    if (!row) {
+      return response.status(404).end();
+    }
+    response.setHeader("Content-Type", row.thumbnail_type === "jpg" ? "image/jpeg" : "image/png");
+    response.setHeader("Content-Length", row.thumbnail.length);
+    response.setHeader("Cache-Control", "public, max-age=300");
+    return response.end(row.thumbnail);
+  } catch (error) {
+    console.error(error);
+    return response.status(500).end();
+  }
+});
+
+app.get("/api/create/download/:id", requireAuth, async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid creation is required." });
+  }
+  try {
+    const result = await pool.query(
+      "SELECT user_id, filename, data FROM creations WHERE id = $1",
+      [id]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return response.status(404).json({ error: "That creation no longer exists." });
+    }
+    if (row.user_id !== request.user.id && !isAdminUsername(request.user.username)) {
+      return response.status(403).json({ error: "That file belongs to someone else." });
+    }
+    // Always a download, never rendered: the bytes came from a player and could
+    // be anything once the extension was faked.
+    response.setHeader("Content-Type", "application/octet-stream");
+    response.setHeader("Content-Disposition", `attachment; filename="${row.filename.replace(/["\r\n]/g, "_")}"`);
+    response.setHeader("Content-Length", row.data.length);
+    return response.end(row.data);
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not open the file." });
+  }
+});
+
+app.post("/api/catalog/:id/purchase", requireAuth, async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid item is required." });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const itemResult = await client.query(
+      "SELECT id, name, currency, price, stock, is_available FROM catalog_items WHERE id = $1 FOR UPDATE",
+      [id]
+    );
+    const item = itemResult.rows[0];
+    if (!item) {
+      await client.query("ROLLBACK");
+      return response.status(404).json({ error: "Item not found." });
+    }
+    if (!item.is_available || (item.stock !== null && item.stock <= 0)) {
+      await client.query("ROLLBACK");
+      return response.status(400).json({ error: "This item is off sale." });
+    }
+    const ownedResult = await client.query(
+      "SELECT 1 FROM item_ownership WHERE user_id = $1 AND catalog_item_id = $2",
+      [request.user.id, id]
+    );
+    if (ownedResult.rows[0]) {
+      await client.query("ROLLBACK");
+      return response.status(409).json({ error: "You already own this item." });
+    }
+    if (item.currency !== "robux") {
+      await client.query("ROLLBACK");
+      return response.status(400).json({ error: "This item cannot be bought with Robux." });
+    }
+    const userResult = await client.query("SELECT robux FROM users WHERE id = $1 FOR UPDATE", [request.user.id]);
+    if (userResult.rows[0].robux < item.price) {
+      await client.query("ROLLBACK");
+      return response.status(403).json({ error: "You do not have enough Robux." });
+    }
+
+    const newStock = item.stock === null ? null : item.stock - 1;
+    const nowOffSale = newStock !== null && newStock <= 0;
+    await client.query("UPDATE users SET robux = robux - $1 WHERE id = $2", [item.price, request.user.id]);
+    await client.query(
+      "UPDATE catalog_items SET sales_count = sales_count + 1, stock = $2, is_available = $3 WHERE id = $1",
+      [id, newStock, !nowOffSale]
+    );
+    await client.query(
+      "INSERT INTO item_ownership (user_id, catalog_item_id, price_paid) VALUES ($1, $2, $3)",
+      [request.user.id, id, item.price]
+    );
+    const balanceResult = await client.query("SELECT robux FROM users WHERE id = $1", [request.user.id]);
+    await client.query("COMMIT");
+    return response.json({
+      ok: true,
+      robux: balanceResult.rows[0].robux,
+      stock: newStock,
+      isAvailable: !nowOffSale,
+      pricePaid: item.price,
+      itemName: item.name
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(error);
+    return response.status(500).json({ error: "Could not complete the purchase." });
+  } finally {
+    client.release();
+  }
+});
+
+migrate()
+  .then(() => {
+    app.listen(port, () => {
+      console.log(`Xedra server running at http://localhost:${port}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Database migration failed:", error);
+    process.exit(1);
+  });
