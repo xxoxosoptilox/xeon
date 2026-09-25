@@ -1331,6 +1331,20 @@ app.get("/api/create/mine", requireAuth, async (request, response) => {
   }
 });
 
+app.get("/api/create/recommended", async (request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, name, thumbnail_type, created_at
+       FROM creations WHERE kind = 'place'
+       ORDER BY created_at DESC LIMIT 20`
+    );
+    return response.json({ creations: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load recommended games." });
+  }
+});
+
 function settingText(value, limit) {
   const text = typeof value === "string" ? value.trim() : "";
   return text.slice(0, limit);
