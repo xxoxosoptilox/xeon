@@ -1,4 +1,4 @@
-const form = document.querySelector("#signup-form");
+ const form = document.querySelector("#signup-form");
 const message = document.querySelector("#form-message");
 const requiredFields = ["month", "day", "year", "username", "password"];
 const loginCard = document.querySelector(".login-card");
@@ -2559,7 +2559,7 @@ function showAvatarPage() {
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   renderAvatarSubtabs("recent");
   void loadOwnedItems();
-  setTimeout(initAvatar3D, 100);
+  setTimeout(() => initAvatar3D("character.glb"), 100);
 }
 
 async function loadOwnedItems() {
