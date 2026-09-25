@@ -321,6 +321,7 @@ function showDefaultHomeContent() {
   adminPage.hidden = true;
   itemPage.hidden = true;
   createPage.hidden = true;
+  configurePage.hidden = true;
   homeDefaultContent.hidden = false;
 }
 
@@ -468,6 +469,21 @@ async function apiCall(method, path, body) {
   }
 }
 
+async function apiCallRaw(method, path, buffer, contentType) {
+  try {
+    const response = await fetch(`${apiBase}${path}`, {
+      method,
+      headers: { "Content-Type": contentType },
+      credentials: "same-origin",
+      body: buffer
+    });
+    const result = await response.json().catch(() => ({}));
+    return { ok: response.ok, result };
+  } catch {
+    return { ok: false, result: { error: "The server is not running. Start it with: node server.js" } };
+  }
+}
+
 const friendsNavButton = document.querySelector("#friends-nav-button");
 const supportNavButton = document.querySelector("#support-nav-button");
 const friendsBadge = document.querySelector("#friends-badge");
@@ -490,6 +506,7 @@ function showFriendsPage() {
   adminPage.hidden = true;
   itemPage.hidden = true;
   createPage.hidden = true;
+  configurePage.hidden = true;
   friendsPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadFriendsPage();
@@ -781,6 +798,7 @@ function showCatalogPage() {
   adminPage.hidden = true;
   itemPage.hidden = true;
   createPage.hidden = true;
+  configurePage.hidden = true;
   catalogPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadCatalog();
@@ -1368,6 +1386,7 @@ function showAdminPage() {
   catalogPage.hidden = true;
   itemPage.hidden = true;
   createPage.hidden = true;
+  configurePage.hidden = true;
   adminPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadAdminCodes();
@@ -1535,7 +1554,7 @@ let myCreations = [];
 const ROW_GLYPHS = { place: "▣", model: "▤", audio: "♫" };
 
 function creationName(creation) {
-  return String(creation.filename || "creation").replace(/\.[A-Za-z0-9]{1,5}$/, "");
+  return creation.name || String(creation.filename || "creation").replace(/\.[A-Za-z0-9]{1,5}$/, "");
 }
 
 function closeCreateMenus() {
@@ -1577,7 +1596,7 @@ function renderCreatePane() {
     }
     const privacy = document.createElement("span");
     privacy.className = "create-row-meta";
-    privacy.textContent = "Public";
+    privacy.textContent = creation.allow_access === false ? "Private" : "Public";
     info.appendChild(privacy);
 
     const settingsWrap = document.createElement("div");
@@ -1591,6 +1610,16 @@ function renderCreatePane() {
     const menu = document.createElement("div");
     menu.className = "create-row-menu";
     menu.hidden = true;
+    if (creation.kind === "place") {
+      const configure = document.createElement("button");
+      configure.type = "button";
+      configure.textContent = "Configure Game";
+      configure.addEventListener("click", () => {
+        menu.hidden = true;
+        openConfigurePage(creation);
+      });
+      menu.appendChild(configure);
+    }
     const download = document.createElement("a");
     download.href = `/api/create/download/${creation.id}`;
     download.textContent = "Download";
@@ -1682,12 +1711,269 @@ function showCreatePage() {
   catalogPage.hidden = true;
   adminPage.hidden = true;
   itemPage.hidden = true;
+  configurePage.hidden = true;
   createPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadMyCreations();
 }
 
 topCreateButton.addEventListener("click", showCreatePage);
+
+const configurePage = document.querySelector("#configure-page");
+const configureTabs = Array.from(document.querySelectorAll("#configure-tabs .configure-tab"));
+const configurePaneTitle = document.querySelector("#configure-pane-title");
+const configureBasic = document.querySelector("#configure-basic");
+const configureEmpty = document.querySelector("#configure-empty");
+const configureName = document.querySelector("#configure-name");
+const configureDescription = document.querySelector("#configure-description");
+const configureComments = document.querySelector("#configure-comments");
+const configureAccess = document.querySelector("#configure-access");
+const configureVoice = document.querySelector("#configure-voice");
+const configureGenre = document.querySelector("#configure-genre");
+const configureSaveButton = document.querySelector("#configure-save");
+const configureCancelButton = document.querySelector("#configure-cancel");
+const configureStatus = document.querySelector("#configure-status");
+
+const configureUpload = document.querySelector("#configure-upload");
+const configureUploadFile = document.querySelector("#configure-upload-file");
+const configureUploadButton = document.querySelector("#configure-upload-button");
+const configureUploadStatus = document.querySelector("#configure-upload-status");
+
+const configureIconPane = document.querySelector("#configure-icon");
+const configureIconPreview = document.querySelector("#configure-icon-preview");
+const configureIconImage = document.querySelector("#configure-icon-image");
+const configureIconUpload = document.querySelector("#configure-icon-upload");
+const configureIconFile = document.querySelector("#configure-icon-file");
+const configureIconStatus = document.querySelector("#configure-icon-status");
+
+const configureThumbnails = document.querySelector("#configure-thumbnails");
+const configureThumbPreview = document.querySelector("#configure-thumb-preview");
+const configureThumbImage = document.querySelector("#configure-thumb-image");
+const configureThumbFile = document.querySelector("#configure-thumb-file");
+const configureThumbGenerate = document.querySelector("#configure-thumb-generate");
+const configureThumbStatus = document.querySelector("#configure-thumb-status");
+
+const configureAccessTab = document.querySelector("#configure-access-tab");
+const configureMaxVisitors = document.querySelector("#configure-max-visitors");
+const configureYear = document.querySelector("#configure-year");
+const configureRigType = document.querySelector("#configure-rig-type");
+const configureAccessSave = document.querySelector("#configure-access-save");
+const configureAccessCancel = document.querySelector("#configure-access-cancel");
+const configureAccessStatus = document.querySelector("#configure-access-status");
+
+const CONFIGURE_PANES = {
+  basic: configureBasic,
+  upload: configureUpload,
+  icon: configureIconPane,
+  thumbnails: configureThumbnails,
+  access: configureAccessTab
+};
+
+let configuring = null;
+
+configureGenre.append(
+  ...["All", ...CATALOG_GENRES.map(([, label]) => label)].map((label) => {
+    const option = document.createElement("option");
+    option.value = label;
+    option.textContent = label;
+    return option;
+  })
+);
+
+for (let y = 2024; y >= 2006; y--) {
+  const option = document.createElement("option");
+  option.value = String(y);
+  option.textContent = String(y);
+  configureYear.appendChild(option);
+}
+
+function selectBoolean(select, value) {
+  select.value = value ? "true" : "false";
+}
+
+function refreshConfigureImages() {
+  if (!configuring) return;
+  if (configuring.icon_type) {
+    configureIconImage.src = `/api/create/${configuring.id}/icon?_=${Date.now()}`;
+    configureIconImage.hidden = false;
+    configureIconPreview.querySelector(".configure-icon-placeholder").hidden = true;
+  } else {
+    configureIconImage.hidden = true;
+    configureIconPreview.querySelector(".configure-icon-placeholder").hidden = false;
+  }
+  if (configuring.thumbnail_type) {
+    configureThumbImage.src = `/api/create/${configuring.id}/thumbnail?_=${Date.now()}`;
+    configureThumbImage.hidden = false;
+    configureThumbPreview.querySelector(".configure-icon-placeholder").hidden = true;
+  } else {
+    configureThumbImage.hidden = true;
+    configureThumbPreview.querySelector(".configure-icon-placeholder").hidden = false;
+  }
+}
+
+function openConfigurePage(creation) {
+  configuring = creation;
+  configureName.value = creation.name || creationName(creation);
+  configureDescription.value = creation.description || "";
+  selectBoolean(configureComments, creation.allow_comments);
+  selectBoolean(configureAccess, creation.allow_access !== false);
+  selectBoolean(configureVoice, creation.voice_chat);
+  const genre = creation.genre || "All";
+  if (!Array.from(configureGenre.options).some((option) => option.value === genre)) {
+    const option = document.createElement("option");
+    option.value = genre;
+    option.textContent = genre;
+    configureGenre.appendChild(option);
+  }
+  configureGenre.value = genre;
+  setStatus(configureStatus, "");
+
+  configureMaxVisitors.value = String(creation.max_visitors || 10);
+  configureYear.value = String(creation.year || 2021);
+  configureRigType.value = creation.rig_type || "R6";
+  setStatus(configureAccessStatus, "");
+
+  configureUploadFile.value = "";
+  setStatus(configureUploadStatus, "");
+  setStatus(configureIconStatus, "");
+  setStatus(configureThumbStatus, "");
+  refreshConfigureImages();
+
+  showConfigurePane("basic", "Basic Settings");
+
+  homeDefaultContent.hidden = true;
+  searchResultsSection.hidden = true;
+  friendsPage.hidden = true;
+  catalogPage.hidden = true;
+  adminPage.hidden = true;
+  itemPage.hidden = true;
+  createPage.hidden = true;
+  configurePage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function showConfigurePane(pane, label) {
+  configureTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.pane === pane));
+  configurePaneTitle.textContent = label;
+  for (const [key, el] of Object.entries(CONFIGURE_PANES)) {
+    el.hidden = key !== pane;
+  }
+  configureEmpty.hidden = Boolean(CONFIGURE_PANES[pane]);
+  configureEmpty.textContent = CONFIGURE_PANES[pane] ? "" : `${label} isn't available yet.`;
+}
+
+configureTabs.forEach((tab) => {
+  tab.addEventListener("click", () => showConfigurePane(tab.dataset.pane, tab.dataset.label));
+});
+
+configureSaveButton.addEventListener("click", async () => {
+  if (!configuring) {
+    return;
+  }
+  configureSaveButton.disabled = true;
+  setStatus(configureStatus, "");
+  const { ok, result } = await apiCall("PUT", `/api/create/${configuring.id}`, {
+    name: configureName.value,
+    description: configureDescription.value,
+    allowComments: configureComments.value === "true",
+    allowAccess: configureAccess.value === "true",
+    voiceChat: configureVoice.value === "true",
+    genre: configureGenre.value
+  });
+  configureSaveButton.disabled = false;
+  if (!ok) {
+    setStatus(configureStatus, result.error || "Could not save the settings.", true);
+    return;
+  }
+  Object.assign(configuring, result.creation);
+  showCreatePage();
+});
+
+configureCancelButton.addEventListener("click", showCreatePage);
+
+configureUploadButton.addEventListener("click", async () => {
+  if (!configuring) return;
+  const file = configureUploadFile.files && configureUploadFile.files[0];
+  if (!file) {
+    setStatus(configureUploadStatus, "Pick a .rbxl file first.", true);
+    return;
+  }
+  configureUploadButton.disabled = true;
+  setStatus(configureUploadStatus, "Uploading...");
+  const buffer = await file.arrayBuffer();
+  const { ok, result } = await apiCallRaw("PUT", `/api/create/${configuring.id}/upload?name=${encodeURIComponent(file.name)}`, buffer, "application/octet-stream");
+  configureUploadButton.disabled = false;
+  if (!ok) {
+    setStatus(configureUploadStatus, result.error || "Could not upload the file.", true);
+    return;
+  }
+  Object.assign(configuring, result.creation);
+  configureUploadFile.value = "";
+  setStatus(configureUploadStatus, "File replaced.");
+});
+
+configureIconUpload.addEventListener("click", () => configureIconFile.click());
+configureIconFile.addEventListener("change", async () => {
+  if (!configuring) return;
+  const file = configureIconFile.files && configureIconFile.files[0];
+  if (!file) return;
+  const type = file.type || (file.name.toLowerCase().endsWith(".jpg") || file.name.toLowerCase().endsWith(".jpeg") ? "image/jpeg" : "image/png");
+  configureIconUpload.disabled = true;
+  setStatus(configureIconStatus, "Uploading icon...");
+  const buffer = await file.arrayBuffer();
+  const { ok, result } = await apiCallRaw("POST", `/api/create/${configuring.id}/icon`, buffer, type);
+  configureIconUpload.disabled = false;
+  if (!ok) {
+    setStatus(configureIconStatus, result.error || "Could not upload the icon.", true);
+    return;
+  }
+  Object.assign(configuring, result.creation);
+  refreshConfigureImages();
+  configureIconFile.value = "";
+  setStatus(configureIconStatus, "Icon saved.");
+});
+
+configureThumbFile.addEventListener("change", async () => {
+  if (!configuring) return;
+  const file = configureThumbFile.files && configureThumbFile.files[0];
+  if (!file) return;
+  const type = file.type || (file.name.toLowerCase().endsWith(".jpg") || file.name.toLowerCase().endsWith(".jpeg") ? "image/jpeg" : "image/png");
+  setStatus(configureThumbStatus, "Uploading thumbnail...");
+  const buffer = await file.arrayBuffer();
+  const { ok, result } = await apiCallRaw("POST", `/api/create/${configuring.id}/thumbnail`, buffer, type);
+  if (!ok) {
+    setStatus(configureThumbStatus, result.error || "Could not upload the thumbnail.", true);
+    return;
+  }
+  Object.assign(configuring, result.creation);
+  refreshConfigureImages();
+  configureThumbFile.value = "";
+  setStatus(configureThumbStatus, "Thumbnail saved.");
+});
+
+configureThumbGenerate.addEventListener("click", () => {
+  setStatus(configureThumbStatus, "Auto-generate isn't available yet.", true);
+});
+
+configureAccessSave.addEventListener("click", async () => {
+  if (!configuring) return;
+  configureAccessSave.disabled = true;
+  setStatus(configureAccessStatus, "");
+  const { ok, result } = await apiCall("PUT", `/api/create/${configuring.id}/access`, {
+    maxVisitors: Number(configureMaxVisitors.value),
+    year: Number(configureYear.value),
+    rigType: configureRigType.value
+  });
+  configureAccessSave.disabled = false;
+  if (!ok) {
+    setStatus(configureAccessStatus, result.error || "Could not save the access settings.", true);
+    return;
+  }
+  Object.assign(configuring, result.creation);
+  showCreatePage();
+});
+
+configureAccessCancel.addEventListener("click", showCreatePage);
 
 function renderRobuxPrice(container, price) {
   const icon = document.createElement("img");
@@ -1707,6 +1993,7 @@ async function openItemPage(itemId) {
   adminPage.hidden = true;
   itemPage.hidden = false;
   createPage.hidden = true;
+  configurePage.hidden = true;
   itemDetail.textContent = "Loading...";
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
 
