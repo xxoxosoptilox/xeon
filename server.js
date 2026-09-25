@@ -219,6 +219,7 @@ async function migrate() {
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS source_asset_id BIGINT`);
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS remote_thumbnail_url TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS accepted BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS asset_type INTEGER`);
   await pool.query(`CREATE TABLE IF NOT EXISTS asset_imports (
     code SERIAL PRIMARY KEY,
     asset_id BIGINT NOT NULL,
@@ -232,6 +233,13 @@ async function migrate() {
     catalog_item_id INTEGER NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
     price_paid INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS equipped_items (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    catalog_item_id INTEGER NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, catalog_item_id)
   )`);
   await pool.query(`CREATE TABLE IF NOT EXISTS creations (
     id SERIAL PRIMARY KEY,
@@ -508,7 +516,8 @@ function normalizeCatalogItem(row) {
     isAvailable: row.is_available,
     salesCount: row.sales_count,
     thumbnailUrl: row.thumbnail_url,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    assetType: row.asset_type
   };
 }
 
@@ -866,6 +875,7 @@ app.post("/api/admin/import", requireAuth, requireAdmin, async (request, respons
     description: "",
     creatorName: "",
     creatorType: "user",
+    assetType: null,
     isLimited: false,
     isLimitedUnique: false,
     price: 0,
@@ -906,6 +916,7 @@ app.post("/api/admin/import", requireAuth, requireAdmin, async (request, respons
       data.description = details.Description || "";
       data.creatorName = (details.Creator && details.Creator.Name) || "";
       data.creatorType = details.Creator && String(details.Creator.CreatorType).toLowerCase() === "group" ? "group" : "user";
+      data.assetType = details.AssetTypeId || null;
       data.isLimited = Boolean(details.IsLimited);
       data.isLimitedUnique = Boolean(details.IsLimitedUnique);
       data.price = Number(details.PriceInRobux) || 0;
@@ -980,6 +991,14 @@ app.post("/api/admin/update-asset", requireAuth, requireAdmin, async (request, r
   if (!Number.isFinite(rap) || rap < 0) {
     return response.status(400).json({ error: "RAP must be 0 or more." });
   }
+  let assetType = null;
+  const rawAssetType = body.assetType;
+  if (rawAssetType !== "" && rawAssetType !== null && rawAssetType !== undefined) {
+    assetType = Number(rawAssetType);
+    if (!Number.isInteger(assetType) || assetType < 0) {
+      return response.status(400).json({ error: "Asset type must be a valid number, or left empty." });
+    }
+  }
   let stock = null;
   const rawStock = body.stock;
   if (rawStock !== "" && rawStock !== null && rawStock !== undefined) {
@@ -1013,7 +1032,8 @@ app.post("/api/admin/update-asset", requireAuth, requireAdmin, async (request, r
       stock === null || stock > 0,
       data.thumbnailUrl || "",
       importRow.asset_id,
-      data.thumbnailUrl || ""
+      data.thumbnailUrl || "",
+      data.assetType || assetType
     ];
     // Codes never expire: re-submitting one refreshes the item it already made.
     const itemResult = importRow.catalog_item_id
@@ -1024,15 +1044,16 @@ app.post("/api/admin/update-asset", requireAuth, requireAdmin, async (request, r
              is_limited_unique = $10, is_available = $11,
              thumbnail_url = COALESCE(NULLIF($12, ''), thumbnail_url),
              source_asset_id = $13,
-             remote_thumbnail_url = COALESCE(NULLIF($14, ''), remote_thumbnail_url)
-           WHERE id = $15 RETURNING *`,
+             remote_thumbnail_url = COALESCE(NULLIF($14, ''), remote_thumbnail_url),
+             asset_type = $15
+           WHERE id = $16 RETURNING *`,
           [...values, importRow.catalog_item_id]
         )
       : await pool.query(
           `INSERT INTO catalog_items
              (name, description, category, creator_name, creator_type, currency, price, rap, stock,
-              is_limited, is_limited_unique, is_new, is_available, thumbnail_url, source_asset_id, remote_thumbnail_url, accepted)
-           VALUES ($1, $2, $3, $4, $5, 'robux', $6, $7, $8, $9, $10, true, $11, $12, $13, $14, true)
+              is_limited, is_limited_unique, is_new, is_available, thumbnail_url, source_asset_id, remote_thumbnail_url, accepted, asset_type)
+           VALUES ($1, $2, $3, $4, $5, 'robux', $6, $7, $8, $9, $10, true, $11, $12, $13, $14, true, $15)
            RETURNING *`,
           values
         );
@@ -1792,7 +1813,7 @@ app.get("/api/avatar/owned", requireAuth, async (request, response) => {
               ci.name, ci.category, ci.creator_name, ci.creator_type,
               ci.currency, ci.price, ci.rap, ci.stock,
               ci.is_limited, ci.is_limited_unique, ci.is_available,
-              ci.thumbnail_url, ci.source_asset_id
+              ci.thumbnail_url, ci.source_asset_id, ci.asset_type
        FROM item_ownership io
        JOIN catalog_items ci ON ci.id = io.catalog_item_id
        WHERE io.user_id = $1 AND ci.accepted = true
@@ -1803,6 +1824,67 @@ app.get("/api/avatar/owned", requireAuth, async (request, response) => {
   } catch (error) {
     console.error(error);
     return response.status(500).json({ error: "Could not load owned items." });
+  }
+});
+
+app.get("/api/avatar/equipped", requireAuth, async (request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT ei.catalog_item_id,
+              ci.name, ci.category, ci.asset_type, ci.thumbnail_url
+       FROM equipped_items ei
+       JOIN catalog_items ci ON ci.id = ei.catalog_item_id
+       WHERE ei.user_id = $1 AND ci.accepted = true
+       ORDER BY ei.created_at DESC`,
+      [request.user.id]
+    );
+    return response.json({ items: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load equipped items." });
+  }
+});
+
+app.post("/api/avatar/equip", requireAuth, async (request, response) => {
+  const catalogItemId = Number(request.body && request.body.catalogItemId);
+  if (!Number.isInteger(catalogItemId) || catalogItemId < 1) {
+    return response.status(400).json({ error: "Invalid item ID." });
+  }
+  try {
+    const owned = await pool.query(
+      "SELECT 1 FROM item_ownership WHERE user_id = $1 AND catalog_item_id = $2",
+      [request.user.id, catalogItemId]
+    );
+    if (!owned.rows.length) {
+      return response.status(403).json({ error: "You do not own this item." });
+    }
+    await pool.query(
+      `INSERT INTO equipped_items (user_id, catalog_item_id)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id, catalog_item_id) DO NOTHING`,
+      [request.user.id, catalogItemId]
+    );
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not equip item." });
+  }
+});
+
+app.post("/api/avatar/unequip", requireAuth, async (request, response) => {
+  const catalogItemId = Number(request.body && request.body.catalogItemId);
+  if (!Number.isInteger(catalogItemId) || catalogItemId < 1) {
+    return response.status(400).json({ error: "Invalid item ID." });
+  }
+  try {
+    await pool.query(
+      "DELETE FROM equipped_items WHERE user_id = $1 AND catalog_item_id = $2",
+      [request.user.id, catalogItemId]
+    );
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not unequip item." });
   }
 });
 
