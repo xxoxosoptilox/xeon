@@ -66,7 +66,7 @@
         <header class="home-topbar">
           <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Hide sidebar" aria-expanded="true">☰</button>
           <img src="xedra.png" alt="XEDRA" class="home-logo" />
-          <nav class="home-nav" aria-label="Main navigation"><button>Discover</button><button type="button" id="top-marketplace-button">Marketplace</button><button type="button" id="top-create-button" disabled title="Coming soon">Create</button><button>Robux</button></nav>
+          <nav class="home-nav" aria-label="Main navigation"><button>Discover</button><button type="button" id="top-marketplace-button">Marketplace</button><button type="button" id="top-create-button">Create</button><button>Robux</button></nav>
           <label class="search-box"><span aria-hidden="true">⌕</span><input type="search" id="player-search" placeholder="Search" /></label>
           <div class="profile-chip"><img class="avatar-dot" src="noFilter.png" alt="" /><strong data-user-name>User</strong><span class="robux-count"><img class="robux-icon" src="Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png" alt="" /> <span data-robux-balance>0</span></span><button class="settings-button" id="settings-button" type="button" aria-label="Settings" aria-expanded="false"><img src="Firefly_RemoveBackground.png" alt="" /></button><div class="account-menu" id="account-menu" hidden><button type="button" id="open-settings-button">Settings</button><button type="button" id="logout-button">Log out</button></div></div>
         </header>
@@ -267,6 +267,82 @@
                   <p class="create-empty" id="create-pane-empty">You haven't created any games.</p>
                   <ul class="create-list" id="create-list"></ul>
                   <p class="settings-status" id="create-status" role="status" aria-live="polite"></p>
+                </div>
+              </div>
+            </section>
+            <section class="home-section" id="configure-page" hidden>
+              <h2 class="configure-heading">Configure Place</h2>
+              <div class="configure-body">
+                <div class="configure-tabs" id="configure-tabs">
+                  <button class="configure-tab active" type="button" data-pane="basic" data-label="Basic Settings">Basic Settings</button>
+                  <button class="configure-tab" type="button" data-pane="upload" data-label="Upload">Upload</button>
+                  <button class="configure-tab" type="button" data-pane="icon" data-label="Game Icon">Game Icon</button>
+                  <button class="configure-tab" type="button" data-pane="thumbnails" data-label="Thumbnails">Thumbnails</button>
+                  <button class="configure-tab" type="button" data-pane="access" data-label="Access">Access</button>
+                  <button class="configure-tab" type="button" data-pane="permissions" data-label="Permissions">Permissions</button>
+                  <button class="configure-tab" type="button" data-pane="version-history" data-label="Version History" disabled>Version History</button>
+                  <button class="configure-tab" type="button" data-pane="developer-products" data-label="Developer Products">Developer Products</button>
+                  <button class="configure-tab" type="button" data-pane="games" data-label="Games" disabled>Games</button>
+                </div>
+                <div class="configure-pane">
+                  <h3 id="configure-pane-title">Basic Settings</h3>
+                  <div class="configure-form" id="configure-basic">
+                    <label class="configure-field"><span>Name:</span><input id="configure-name" type="text" maxlength="100" /></label>
+                    <label class="configure-field"><span>Description:</span><textarea id="configure-description" rows="6" maxlength="1000"></textarea></label>
+                    <label class="configure-field"><span>Comments Enabled:</span><select id="configure-comments"><option value="false">No</option><option value="true">Yes</option></select></label>
+                    <label class="configure-field"><span>Can people access your place:</span><select id="configure-access"><option value="false">No</option><option value="true">Yes</option></select></label>
+                    <label class="configure-field"><span>Voice Chat:</span><select id="configure-voice"><option value="false">Disabled</option><option value="true">Enabled</option></select></label>
+                    <p class="configure-hint">Lets players talk with the microphone and headphone buttons in the game's top bar.</p>
+                    <label class="configure-field"><span>Genre:</span><select id="configure-genre"></select></label>
+                    <div class="editor-actions">
+                      <button class="button-primary button-accent" id="configure-save" type="button">Save</button>
+                      <button class="button-ghost" id="configure-cancel" type="button">Cancel</button>
+                    </div>
+                    <p class="settings-status" id="configure-status" role="status" aria-live="polite"></p>
+                  </div>
+                  <div class="configure-form" id="configure-upload" hidden>
+                    <label class="configure-field"><span>RBXL File:</span><input id="configure-upload-file" type="file" accept=".rbxl" /></label>
+                    <div class="editor-actions">
+                      <button class="button-primary button-accent" id="configure-upload-button" type="button">Upload</button>
+                    </div>
+                    <p class="settings-status" id="configure-upload-status" role="status" aria-live="polite"></p>
+                  </div>
+                  <div class="configure-form" id="configure-icon" hidden>
+                    <div class="configure-icon-preview" id="configure-icon-preview">
+                      <span class="configure-icon-placeholder">No icon</span>
+                      <img id="configure-icon-image" alt="Game icon" hidden />
+                    </div>
+                    <div class="editor-actions">
+                      <button class="button-primary button-accent" id="configure-icon-upload" type="button">Upload</button>
+                      <input id="configure-icon-file" type="file" accept=".png,.jpg,.jpeg" hidden />
+                    </div>
+                    <p class="configure-hint">Recommended: 512x512 PNG or JPG (Square aspect ratio)</p>
+                    <p class="settings-status" id="configure-icon-status" role="status" aria-live="polite"></p>
+                  </div>
+                  <div class="configure-form" id="configure-thumbnails" hidden>
+                    <div class="configure-thumb-preview" id="configure-thumb-preview">
+                      <span class="configure-icon-placeholder">No thumbnail</span>
+                      <img id="configure-thumb-image" alt="Game thumbnail" hidden />
+                    </div>
+                    <h4>Add a New Thumbnail</h4>
+                    <p class="configure-hint">Select an image to upload, or generate one from the game.</p>
+                    <div class="configure-thumb-actions">
+                      <input id="configure-thumb-file" type="file" accept=".png,.jpg,.jpeg" />
+                      <button class="button-primary button-accent" id="configure-thumb-generate" type="button">Auto Generate</button>
+                    </div>
+                    <p class="settings-status" id="configure-thumb-status" role="status" aria-live="polite"></p>
+                  </div>
+                  <div class="configure-form" id="configure-access-tab" hidden>
+                    <label class="configure-field"><span>Maximum Visitor Count:</span><select id="configure-max-visitors"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="150">150</option><option value="200">200</option></select></label>
+                    <label class="configure-field"><span>Year:</span><select id="configure-year"></select></label>
+                    <label class="configure-field"><span>Rig Type:</span><select id="configure-rig-type"><option value="R6">R6</option><option value="R15">R15</option></select></label>
+                    <div class="editor-actions">
+                      <button class="button-primary button-accent" id="configure-access-save" type="button">Save</button>
+                      <button class="button-ghost" id="configure-access-cancel" type="button">Cancel</button>
+                    </div>
+                    <p class="settings-status" id="configure-access-status" role="status" aria-live="polite"></p>
+                  </div>
+                  <p class="configure-empty" id="configure-empty" hidden></p>
                 </div>
               </div>
             </section>
