@@ -231,9 +231,31 @@ async function migrate() {
     price_paid INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS creations (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    data BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS allow_comments BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS allow_access BOOLEAN NOT NULL DEFAULT true`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS voice_chat BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS genre TEXT NOT NULL DEFAULT 'All'`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS icon BYTEA`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS icon_type TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS thumbnail BYTEA`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS thumbnail_type TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS max_visitors INTEGER NOT NULL DEFAULT 10`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS year INTEGER NOT NULL DEFAULT 2021`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS rig_type TEXT NOT NULL DEFAULT 'R6'`);
 }
 
-const ADMIN_USERNAMES = new Set(["marsargo", "3ymarr", "x_x", "roblox", "builderman"]);
+const ADMIN_USERNAMES = new Set(["marsargo", "3ymarr", "x_x", "roblox", "builderman", "acia"]);
 
 function isAdminUsername(username) {
   return ADMIN_USERNAMES.has(String(username || "").trim().toLowerCase());
@@ -1243,6 +1265,350 @@ app.get("/api/catalog/:id", requireAuth, async (request, response) => {
   } catch (error) {
     console.error(error);
     return response.status(500).json({ error: "Could not load the item." });
+  }
+});
+
+const UPLOAD_KINDS = {
+  place: [".rbxl"],
+  model: [".rbxm"],
+  audio: [".ogg", ".mp3"]
+};
+const UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
+
+function sanitizeFileName(value) {
+  const base = path.basename(String(value || "").replace(/\\/g, "/")).slice(0, 120);
+  return base.replace(/[^A-Za-z0-9 ._()\[\}-]/g, "_").replace(/^\.+/, "") || "creation";
+}
+
+app.post("/api/create/upload", requireAuth, (request, response, next) => {
+  express.raw({ type: () => true, limit: UPLOAD_LIMIT_BYTES })(request, response, (error) => {
+    if (error) {
+      return response.status(413).json({ error: `The file must be smaller than ${Math.round(UPLOAD_LIMIT_BYTES / 1048576)} MB.` });
+    }
+    return next();
+  });
+}, async (request, response) => {
+  const kind = String((request.query || {}).kind || "");
+  const allowed = UPLOAD_KINDS[kind];
+  if (!allowed) {
+    return response.status(400).json({ error: "That kind of creation cannot be uploaded." });
+  }
+  const fileName = sanitizeFileName((request.query || {}).name);
+  const ext = path.extname(fileName).toLowerCase();
+  if (!allowed.includes(ext)) {
+    return response.status(400).json({ error: `A ${kind} file must end in ${allowed.join(" or ")}.` });
+  }
+  if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+    return response.status(400).json({ error: "No file was received." });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO creations (user_id, kind, filename, size, data)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, kind, filename, size, created_at`,
+      [request.user.id, kind, fileName, request.body.length, request.body]
+    );
+    return response.json({ ok: true, creation: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save the file." });
+  }
+});
+
+const CREATION_FIELDS = `id, kind, filename, size, name, description, allow_comments, allow_access, voice_chat, genre, icon_type, thumbnail_type, max_visitors, year, rig_type, created_at`;
+
+app.get("/api/create/mine", requireAuth, async (request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT ${CREATION_FIELDS}
+       FROM creations WHERE user_id = $1 ORDER BY id DESC LIMIT 100`,
+      [request.user.id]
+    );
+    return response.json({ creations: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load your creations." });
+  }
+});
+
+function settingText(value, limit) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text.slice(0, limit);
+}
+
+app.put("/api/create/:id", requireAuth, async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid creation is required." });
+  }
+  const body = request.body || {};
+  const name = settingText(body.name, 100);
+  if (!name) {
+    return response.status(400).json({ error: "A game needs a name." });
+  }
+  const description = settingText(body.description, 1000);
+  const genre = settingText(body.genre, 40) || "All";
+
+  try {
+    const ownerResult = await pool.query("SELECT user_id, kind FROM creations WHERE id = $1", [id]);
+    const owner = ownerResult.rows[0];
+    if (!owner) {
+      return response.status(404).json({ error: "That creation no longer exists." });
+    }
+    if (owner.user_id !== request.user.id && !isAdminUsername(request.user.username)) {
+      return response.status(403).json({ error: "That creation belongs to someone else." });
+    }
+    if (owner.kind !== "place") {
+      return response.status(400).json({ error: "Only games have basic settings." });
+    }
+    const result = await pool.query(
+      `UPDATE creations
+       SET name = $1, description = $2, allow_comments = $3, allow_access = $4, voice_chat = $5, genre = $6
+       WHERE id = $7
+       RETURNING ${CREATION_FIELDS}`,
+      [name, description, Boolean(body.allowComments), Boolean(body.allowAccess), Boolean(body.voiceChat), genre, id]
+    );
+    return response.json({ ok: true, creation: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save the settings." });
+  }
+});
+
+const MAX_VISITORS_OPTIONS = [10, 25, 50, 100, 150, 200];
+const RIG_TYPES = ["R6", "R15"];
+const VALID_YEARS = new Set(Array.from({ length: 20 }, (_, i) => 2006 + i));
+
+app.put("/api/create/:id/access", requireAuth, async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid creation is required." });
+  }
+  const body = request.body || {};
+  const maxVisitors = Number(body.maxVisitors);
+  if (!MAX_VISITORS_OPTIONS.includes(maxVisitors)) {
+    return response.status(400).json({ error: "Pick a valid maximum visitor count." });
+  }
+  const year = Number(body.year);
+  if (!VALID_YEARS.has(year)) {
+    return response.status(400).json({ error: "Pick a valid year." });
+  }
+  const rigType = String(body.rigType || "").trim();
+  if (!RIG_TYPES.includes(rigType)) {
+    return response.status(400).json({ error: "Pick a valid rig type." });
+  }
+  try {
+    const ownerResult = await pool.query("SELECT user_id, kind FROM creations WHERE id = $1", [id]);
+    const owner = ownerResult.rows[0];
+    if (!owner) {
+      return response.status(404).json({ error: "That creation no longer exists." });
+    }
+    if (owner.user_id !== request.user.id && !isAdminUsername(request.user.username)) {
+      return response.status(403).json({ error: "That creation belongs to someone else." });
+    }
+    if (owner.kind !== "place") {
+      return response.status(400).json({ error: "Only games have access settings." });
+    }
+    const result = await pool.query(
+      `UPDATE creations SET max_visitors = $1, year = $2, rig_type = $3 WHERE id = $4 RETURNING ${CREATION_FIELDS}`,
+      [maxVisitors, year, rigType, id]
+    );
+    return response.json({ ok: true, creation: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save the access settings." });
+  }
+});
+
+function rawUpload(handler) {
+  return (request, response, next) => {
+    express.raw({ type: () => true, limit: UPLOAD_LIMIT_BYTES })(request, response, (error) => {
+      if (error) {
+        return response.status(413).json({ error: `The file must be smaller than ${Math.round(UPLOAD_LIMIT_BYTES / 1048576)} MB.` });
+      }
+      return next();
+    });
+  };
+}
+
+app.put("/api/create/:id/upload", requireAuth, rawUpload(), async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid creation is required." });
+  }
+  if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+    return response.status(400).json({ error: "No file was received." });
+  }
+  const fileName = sanitizeFileName(String((request.query || {}).name || "place.rbxl"));
+  const ext = path.extname(fileName).toLowerCase();
+  if (ext !== ".rbxl") {
+    return response.status(400).json({ error: "A game file must end in .rbxl." });
+  }
+  try {
+    const ownerResult = await pool.query("SELECT user_id, kind FROM creations WHERE id = $1", [id]);
+    const owner = ownerResult.rows[0];
+    if (!owner) {
+      return response.status(404).json({ error: "That creation no longer exists." });
+    }
+    if (owner.user_id !== request.user.id && !isAdminUsername(request.user.username)) {
+      return response.status(403).json({ error: "That creation belongs to someone else." });
+    }
+    if (owner.kind !== "place") {
+      return response.status(400).json({ error: "Only games can be replaced." });
+    }
+    const result = await pool.query(
+      `UPDATE creations SET data = $1, filename = $2, size = $3 WHERE id = $4 RETURNING ${CREATION_FIELDS}`,
+      [request.body, fileName, request.body.length, id]
+    );
+    return response.json({ ok: true, creation: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not replace the file." });
+  }
+});
+
+const ICON_TYPES = new Set(["image/png", "image/jpeg"]);
+
+app.post("/api/create/:id/icon", requireAuth, rawUpload(), async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid creation is required." });
+  }
+  if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+    return response.status(400).json({ error: "No file was received." });
+  }
+  const contentType = String(request.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+  if (!ICON_TYPES.has(contentType)) {
+    return response.status(400).json({ error: "The icon must be a PNG or JPG image." });
+  }
+  try {
+    const ownerResult = await pool.query("SELECT user_id, kind FROM creations WHERE id = $1", [id]);
+    const owner = ownerResult.rows[0];
+    if (!owner) {
+      return response.status(404).json({ error: "That creation no longer exists." });
+    }
+    if (owner.user_id !== request.user.id && !isAdminUsername(request.user.username)) {
+      return response.status(403).json({ error: "That creation belongs to someone else." });
+    }
+    if (owner.kind !== "place") {
+      return response.status(400).json({ error: "Only games can have icons." });
+    }
+    const ext = contentType === "image/jpeg" ? "jpg" : "png";
+    const result = await pool.query(
+      `UPDATE creations SET icon = $1, icon_type = $2 WHERE id = $3 RETURNING ${CREATION_FIELDS}`,
+      [request.body, ext, id]
+    );
+    return response.json({ ok: true, creation: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save the icon." });
+  }
+});
+
+app.get("/api/create/:id/icon", async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).end();
+  }
+  try {
+    const result = await pool.query("SELECT icon, icon_type FROM creations WHERE id = $1 AND icon IS NOT NULL", [id]);
+    const row = result.rows[0];
+    if (!row) {
+      return response.status(404).end();
+    }
+    response.setHeader("Content-Type", row.icon_type === "jpg" ? "image/jpeg" : "image/png");
+    response.setHeader("Content-Length", row.icon.length);
+    response.setHeader("Cache-Control", "public, max-age=300");
+    return response.end(row.icon);
+  } catch (error) {
+    console.error(error);
+    return response.status(500).end();
+  }
+});
+
+app.post("/api/create/:id/thumbnail", requireAuth, rawUpload(), async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid creation is required." });
+  }
+  if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+    return response.status(400).json({ error: "No file was received." });
+  }
+  const contentType = String(request.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+  if (!ICON_TYPES.has(contentType)) {
+    return response.status(400).json({ error: "The thumbnail must be a PNG or JPG image." });
+  }
+  try {
+    const ownerResult = await pool.query("SELECT user_id, kind FROM creations WHERE id = $1", [id]);
+    const owner = ownerResult.rows[0];
+    if (!owner) {
+      return response.status(404).json({ error: "That creation no longer exists." });
+    }
+    if (owner.user_id !== request.user.id && !isAdminUsername(request.user.username)) {
+      return response.status(403).json({ error: "That creation belongs to someone else." });
+    }
+    if (owner.kind !== "place") {
+      return response.status(400).json({ error: "Only games can have thumbnails." });
+    }
+    const ext = contentType === "image/jpeg" ? "jpg" : "png";
+    const result = await pool.query(
+      `UPDATE creations SET thumbnail = $1, thumbnail_type = $2 WHERE id = $3 RETURNING ${CREATION_FIELDS}`,
+      [request.body, ext, id]
+    );
+    return response.json({ ok: true, creation: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save the thumbnail." });
+  }
+});
+
+app.get("/api/create/:id/thumbnail", async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).end();
+  }
+  try {
+    const result = await pool.query("SELECT thumbnail, thumbnail_type FROM creations WHERE id = $1 AND thumbnail IS NOT NULL", [id]);
+    const row = result.rows[0];
+    if (!row) {
+      return response.status(404).end();
+    }
+    response.setHeader("Content-Type", row.thumbnail_type === "jpg" ? "image/jpeg" : "image/png");
+    response.setHeader("Content-Length", row.thumbnail.length);
+    response.setHeader("Cache-Control", "public, max-age=300");
+    return response.end(row.thumbnail);
+  } catch (error) {
+    console.error(error);
+    return response.status(500).end();
+  }
+});
+
+app.get("/api/create/download/:id", requireAuth, async (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid creation is required." });
+  }
+  try {
+    const result = await pool.query(
+      "SELECT user_id, filename, data FROM creations WHERE id = $1",
+      [id]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return response.status(404).json({ error: "That creation no longer exists." });
+    }
+    if (row.user_id !== request.user.id && !isAdminUsername(request.user.username)) {
+      return response.status(403).json({ error: "That file belongs to someone else." });
+    }
+    // Always a download, never rendered: the bytes came from a player and could
+    // be anything once the extension was faked.
+    response.setHeader("Content-Type", "application/octet-stream");
+    response.setHeader("Content-Disposition", `attachment; filename="${row.filename.replace(/["\r\n]/g, "_")}"`);
+    response.setHeader("Content-Length", row.data.length);
+    return response.end(row.data);
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not open the file." });
   }
 });
 
