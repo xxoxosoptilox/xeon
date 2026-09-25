@@ -2463,7 +2463,7 @@ async function loadOwnedItems() {
       card.className = "avatar-item-card";
       const thumb = document.createElement("div");
       thumb.className = "avatar-item-thumb";
-      if (item.thumbnail_url && item.thumbnail_url.startsWith("http")) {
+      if (item.thumbnail_url) {
         const img = document.createElement("img");
         img.src = item.thumbnail_url;
         img.alt = item.name || "";
