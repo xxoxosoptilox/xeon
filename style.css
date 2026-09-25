@@ -392,3 +392,55 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 .discord-button { min-width: 74px; border: 1px solid #3a3d40; border-radius: 6px; padding: 6px 14px; color: #cfd3d4; background: #24272a; font-size: 12px; font-weight: 700; cursor: pointer; }
 .discord-button:hover { border-color: #a94cae; color: #fff; }
 .discord-actions { display: flex; gap: 8px; }
+
+/* Avatar Editor */
+.avatar-editor { display: flex; flex-direction: column; gap: 16px; }
+.avatar-editor-header { display: flex; justify-content: space-between; align-items: center; }
+.avatar-editor-header h2 { margin: 0; font-size: 22px; font-weight: 700; }
+.avatar-editor-header-right { display: flex; align-items: center; gap: 12px; }
+.avatar-editor-hint { color: var(--hs-muted); font-size: 13px; }
+.avatar-get-more { background: #00b06f; color: #fff; border: none; border-radius: 6px; padding: 8px 18px; font-size: 14px; font-weight: 700; cursor: pointer; }
+.avatar-get-more:hover { background: #009960; }
+
+.avatar-editor-body { display: flex; gap: 20px; min-height: 520px; }
+.avatar-preview-column { width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 20px; }
+.avatar-preview-box { position: relative; background: linear-gradient(145deg, #c4a87a, #8b6f4e); border-radius: 8px; height: 360px; overflow: hidden; }
+.avatar-preview-placeholder { width: 100%; height: 100%; }
+.avatar-rig-toggle { position: absolute; top: 10px; right: 10px; display: flex; gap: 0; z-index: 2; }
+.avatar-rig-btn { background: #444; color: #ccc; border: none; padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.avatar-rig-btn:first-child { border-radius: 4px 0 0 4px; }
+.avatar-rig-btn:last-child { border-radius: 0 4px 4px 0; }
+.avatar-rig-btn.active { background: #2a7ab5; color: #fff; }
+.avatar-view-toggle { position: absolute; bottom: 10px; right: 10px; background: #555; color: #fff; border: none; border-radius: 4px; padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer; z-index: 2; }
+.avatar-view-toggle:hover { background: #666; }
+
+.avatar-scaling h3 { margin: 0 0 12px; font-size: 20px; font-weight: 700; }
+.scaling-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 13px; }
+.scaling-row > span:first-child { width: 80px; color: var(--hs-muted); }
+.scaling-row > span:last-child { width: 40px; text-align: right; color: var(--hs-muted); font-size: 12px; }
+.scaling-slider { flex: 1; accent-color: #888; }
+
+.avatar-items-column { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.avatar-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--hs-border); margin-bottom: 12px; }
+.avatar-tab { background: none; border: none; border-bottom: 3px solid transparent; padding: 10px 16px; font-size: 14px; font-weight: 700; color: var(--hs-muted); cursor: pointer; margin-bottom: -2px; }
+.avatar-tab:hover { color: var(--hs-text); }
+.avatar-tab.active { color: var(--hs-text); border-bottom-color: #e04f8a; }
+
+.avatar-subtabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; padding: 10px 12px; background: var(--hs-card-bg, #f5f5f5); border-radius: 6px; border: 1px solid var(--hs-border); }
+.avatar-subtab { background: #e8e8e8; border: none; border-radius: 4px; padding: 5px 12px; font-size: 12px; cursor: pointer; color: #333; }
+.avatar-subtab:hover { background: #ddd; }
+.avatar-subtab.active { background: #fff; border: 1px solid #ccc; font-weight: 700; }
+.avatar-subtab-group { font-size: 12px; color: var(--hs-muted); margin-right: 4px; }
+
+.avatar-items-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; flex: 1; }
+.avatar-item-card { border: 2px solid var(--hs-border); border-radius: 6px; overflow: hidden; background: var(--hs-card-bg, #fff); cursor: pointer; }
+.avatar-item-card:hover { border-color: #aaa; }
+.avatar-item-thumb { width: 100%; aspect-ratio: 1; background: #eee; }
+.avatar-item-name { font-size: 11px; padding: 4px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.avatar-outfits-pane { flex: 1; }
+.avatar-outfits-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.avatar-outfits-header > span { font-size: 14px; font-weight: 700; }
+.avatar-create-outfit { background: #e04f8a; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.avatar-create-outfit:hover { background: #c9407a; }
+.avatar-outfits-empty { color: var(--hs-muted); font-size: 14px; text-align: center; padding: 40px 20px; background: var(--hs-card-bg, #f5f5f5); border-radius: 6px; }
