@@ -1403,6 +1403,8 @@ const adminDeleteButton = document.querySelector("#admin-delete-button");
 const adminRefundButton = document.querySelector("#admin-refund-button");
 const adminDeleteStatus = document.querySelector("#admin-delete-status");
 const adminCodesList = document.querySelector("#admin-codes-list");
+const adminPendingList = document.querySelector("#admin-pending-list");
+const adminAcceptStatus = document.querySelector("#admin-accept-status");
 
 const itemPage = document.querySelector("#item-page");
 const itemDetail = document.querySelector("#item-detail");
@@ -1419,6 +1421,7 @@ function showAdminPage() {
   adminPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadAdminCodes();
+  void loadPendingAssets();
 }
 
 adminNavButton.addEventListener("click", showAdminPage);
@@ -1453,6 +1456,91 @@ async function loadAdminCodes() {
     line.append(code, name, state);
     adminCodesList.appendChild(line);
   });
+}
+
+async function loadPendingAssets() {
+  if (!adminPendingList) return;
+  adminPendingList.textContent = "";
+  const { ok, result } = await apiCall("GET", "/api/admin/pending-assets");
+  if (!ok) {
+    const line = document.createElement("li");
+    line.textContent = result.error || "Could not load pending assets.";
+    adminPendingList.appendChild(line);
+    return;
+  }
+  const assets = result.assets || [];
+  if (!assets.length) {
+    const line = document.createElement("li");
+    line.className = "empty";
+    line.textContent = "No pending assets. All assets are accepted.";
+    adminPendingList.appendChild(line);
+    return;
+  }
+  assets.forEach((asset) => {
+    const line = document.createElement("li");
+    line.className = "pending-asset-row";
+    const info = document.createElement("div");
+    info.className = "pending-asset-info";
+    const name = document.createElement("strong");
+    name.textContent = asset.name || "Unnamed Asset";
+    const meta = document.createElement("span");
+    meta.className = "pending-asset-meta";
+    if (asset.source === "creation") {
+      meta.textContent = `Upload • ${asset.category}`;
+    } else {
+      meta.textContent = `${asset.category} • ${asset.price} Robux`;
+    }
+    info.append(name, meta);
+    const actions = document.createElement("div");
+    actions.className = "pending-asset-actions";
+    const acceptBtn = document.createElement("button");
+    acceptBtn.className = "button-primary button-accent";
+    acceptBtn.textContent = "Accept";
+    acceptBtn.addEventListener("click", () => void acceptAsset(asset.id, asset.source, line));
+    const rejectBtn = document.createElement("button");
+    rejectBtn.className = "button-ghost";
+    rejectBtn.textContent = "Reject";
+    rejectBtn.addEventListener("click", () => void rejectAsset(asset.id, asset.source, line));
+    actions.append(acceptBtn, rejectBtn);
+    line.append(info, actions);
+    adminPendingList.appendChild(line);
+  });
+}
+
+async function acceptAsset(id, source, row) {
+  const { ok, result } = await apiCall("POST", "/api/admin/accept-asset", { id, source });
+  if (ok) {
+    row.remove();
+    if (!adminPendingList.children.length) {
+      const line = document.createElement("li");
+      line.className = "empty";
+      line.textContent = "No pending assets. All assets are accepted.";
+      adminPendingList.appendChild(line);
+    }
+  } else {
+    setAdminAcceptStatus(result.error || "Could not accept the asset.", true);
+  }
+}
+
+async function rejectAsset(id, source, row) {
+  const { ok, result } = await apiCall("POST", "/api/admin/reject-asset", { id, source });
+  if (ok) {
+    row.remove();
+    if (!adminPendingList.children.length) {
+      const line = document.createElement("li");
+      line.className = "empty";
+      line.textContent = "No pending assets. All assets are accepted.";
+      adminPendingList.appendChild(line);
+    }
+  } else {
+    setAdminAcceptStatus(result.error || "Could not reject the asset.", true);
+  }
+}
+
+function setAdminAcceptStatus(text, isError) {
+  if (!adminAcceptStatus) return;
+  adminAcceptStatus.textContent = text;
+  adminAcceptStatus.className = `settings-status${isError ? " error" : ""}`;
 }
 
 function adminPreviewList(data) {
