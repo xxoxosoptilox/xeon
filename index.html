@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="style.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   </head>
   <body>
     <main class="page-shell">
@@ -226,6 +227,23 @@
                   <option value="not_limited">Not Limited</option>
                   <option value="limited">Limited</option>
                   <option value="limited_unique">Limited Unique</option>
+                </select>
+                <label for="admin-update-asset-type">Item Type (for 3D placement)</label>
+                <select id="admin-update-asset-type">
+                  <option value="">Select item type</option>
+                  <option value="8">Hat</option>
+                  <option value="11">Shirt</option>
+                  <option value="12">Pants</option>
+                  <option value="17">Head</option>
+                  <option value="18">Face</option>
+                  <option value="19">Gear</option>
+                  <option value="41">Hair Accessory</option>
+                  <option value="42">Face Accessory</option>
+                  <option value="43">Neck Accessory</option>
+                  <option value="44">Shoulder Accessory</option>
+                  <option value="45">Front Accessory</option>
+                  <option value="46">Back Accessory</option>
+                  <option value="47">Waist Accessory</option>
                 </select>
                 <div class="editor-actions">
                   <button class="button-primary button-accent" id="admin-update-button" type="button">Submit</button>
