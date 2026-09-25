@@ -2432,6 +2432,117 @@ scalingSliders.forEach((slider) => {
   });
 });
 
+let avatarScene, avatarCamera, avatarRenderer, avatarCharacter, avatarAnimationId;
+
+function initAvatar3D(modelUrl = null) {
+  const container = document.querySelector(".avatar-preview-box");
+  if (!container || typeof THREE === "undefined") return;
+
+  const placeholder = container.querySelector(".avatar-preview-placeholder");
+  if (placeholder) {
+    placeholder.style.display = "none";
+  }
+
+  if (avatarRenderer) {
+    container.removeChild(avatarRenderer.domElement);
+    avatarRenderer.dispose();
+    cancelAnimationFrame(avatarAnimationId);
+  }
+
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+
+  avatarScene = new THREE.Scene();
+  avatarScene.background = new THREE.Color(0xc4a87a);
+
+  avatarCamera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
+  avatarCamera.position.set(0, 0, 6);
+
+  avatarRenderer = new THREE.WebGLRenderer({ antialias: true });
+  avatarRenderer.setSize(width, height);
+  avatarRenderer.setPixelRatio(window.devicePixelRatio);
+  container.appendChild(avatarRenderer.domElement);
+
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+  avatarScene.add(ambientLight);
+
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  directionalLight.position.set(5, 10, 7);
+  avatarScene.add(directionalLight);
+
+  avatarCharacter = new THREE.Group();
+
+  if (modelUrl && typeof THREE.GLTFLoader !== "undefined") {
+    const loader = new THREE.GLTFLoader();
+    loader.load(
+      modelUrl,
+      (gltf) => {
+        const model = gltf.scene;
+        model.scale.set(1.5, 1.5, 1.5);
+        model.position.y = -1;
+        avatarCharacter.add(model);
+      },
+      undefined,
+      (error) => {
+        console.error("GLB load failed:", error);
+        buildProceduralCharacter();
+      }
+    );
+  } else {
+    buildProceduralCharacter();
+  }
+
+  avatarScene.add(avatarCharacter);
+
+  function buildProceduralCharacter() {
+    const skinMaterial = new THREE.MeshLambertMaterial({ color: 0xf5c6a0 });
+    const headGeometry = new THREE.BoxGeometry(1, 1, 1);
+    const head = new THREE.Mesh(headGeometry, skinMaterial);
+    head.position.y = 1.5;
+    avatarCharacter.add(head);
+
+    const torsoGeometry = new THREE.BoxGeometry(1, 1.2, 0.6);
+    const torso = new THREE.Mesh(torsoGeometry, skinMaterial);
+    torso.position.y = 0.4;
+    avatarCharacter.add(torso);
+
+    const armGeometry = new THREE.BoxGeometry(0.4, 1.2, 0.4);
+    const leftArm = new THREE.Mesh(armGeometry, skinMaterial);
+    leftArm.position.set(-0.7, 0.4, 0);
+    avatarCharacter.add(leftArm);
+
+    const rightArm = new THREE.Mesh(armGeometry, skinMaterial);
+    rightArm.position.set(0.7, 0.4, 0);
+    avatarCharacter.add(rightArm);
+
+    const legGeometry = new THREE.BoxGeometry(0.45, 1.2, 0.45);
+    const leftLeg = new THREE.Mesh(legGeometry, skinMaterial);
+    leftLeg.position.set(-0.25, -0.8, 0);
+    avatarCharacter.add(leftLeg);
+
+    const rightLeg = new THREE.Mesh(legGeometry, skinMaterial);
+    rightLeg.position.set(0.25, -0.8, 0);
+    avatarCharacter.add(rightLeg);
+  }
+
+  function animate() {
+    avatarAnimationId = requestAnimationFrame(animate);
+    if (avatarCharacter) {
+      avatarCharacter.rotation.y += 0.01;
+    }
+    avatarRenderer.render(avatarScene, avatarCamera);
+  }
+  animate();
+
+  window.addEventListener("resize", () => {
+    const newWidth = container.clientWidth;
+    const newHeight = container.clientHeight;
+    avatarCamera.aspect = newWidth / newHeight;
+    avatarCamera.updateProjectionMatrix();
+    avatarRenderer.setSize(newWidth, newHeight);
+  });
+}
+
 function showAvatarPage() {
   if ((currentUser?.username || "").toLowerCase() !== "marsargo") {
     return;
@@ -2448,6 +2559,7 @@ function showAvatarPage() {
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   renderAvatarSubtabs("recent");
   void loadOwnedItems();
+  setTimeout(initAvatar3D, 100);
 }
 
 async function loadOwnedItems() {
