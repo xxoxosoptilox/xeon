@@ -217,6 +217,7 @@ async function migrate() {
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS stock INTEGER`);
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS source_asset_id BIGINT`);
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS remote_thumbnail_url TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS accepted BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`CREATE TABLE IF NOT EXISTS asset_imports (
     code SERIAL PRIMARY KEY,
     asset_id BIGINT NOT NULL,
@@ -240,6 +241,7 @@ async function migrate() {
     data BYTEA NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
+  await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS accepted BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS allow_comments BOOLEAN NOT NULL DEFAULT false`);
@@ -255,7 +257,7 @@ async function migrate() {
   await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS rig_type TEXT NOT NULL DEFAULT 'R6'`);
 }
 
-const ADMIN_USERNAMES = new Set(["marsargo", "3ymarr", "x_x", "roblox", "builderman", "acia"]);
+const ADMIN_USERNAMES = new Set(["marsargo", "3ymarr", "x_x", "roblox", "builderman", "acia", "tiffany"]);
 
 function isAdminUsername(username) {
   return ADMIN_USERNAMES.has(String(username || "").trim().toLowerCase());
@@ -570,6 +572,8 @@ app.get("/api/catalog", requireAuth, async (request, response) => {
   if (request.query.includeUnavailable !== "1" && request.query.includeUnavailable !== "true") {
     add("is_available = true");
   }
+
+  add("accepted = true");
 
   const sort = catalogString(request.query.sort);
   const orderBy = {
@@ -1213,6 +1217,91 @@ app.get("/api/admin/imports", requireAuth, requireAdmin, async (request, respons
   }
 });
 
+app.get("/api/admin/pending-assets", requireAuth, requireAdmin, async (request, response) => {
+  try {
+    const catalogResult = await pool.query(
+      `SELECT id, name, 'catalog' AS item_type, category, price, created_at
+       FROM catalog_items WHERE accepted = false AND creator_type = 'user'`
+    );
+    const creationResult = await pool.query(
+      `SELECT id, COALESCE(NULLIF(filename, ''), 'Unnamed') AS name, kind AS item_type, kind AS category, 0 AS price, created_at
+       FROM creations WHERE accepted = false`
+    );
+    const combined = [
+      ...catalogResult.rows.map((row) => ({ ...row, source: "catalog" })),
+      ...creationResult.rows.map((row) => ({ ...row, source: "creation" }))
+    ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 50);
+    return response.json({ assets: combined });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load pending assets." });
+  }
+});
+
+app.post("/api/admin/accept-asset", requireAuth, requireAdmin, async (request, response) => {
+  const body = request.body || {};
+  const id = Number(body.id);
+  const source = body.source || "catalog";
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid asset ID is required." });
+  }
+  try {
+    if (source === "creation") {
+      const result = await pool.query(
+        `UPDATE creations SET accepted = true WHERE id = $1 RETURNING id, kind, filename`,
+        [id]
+      );
+      if (!result.rows[0]) {
+        return response.status(404).json({ error: "Creation not found." });
+      }
+      return response.json({ ok: true, asset: result.rows[0] });
+    }
+    const result = await pool.query(
+      `UPDATE catalog_items SET accepted = true WHERE id = $1 RETURNING id, name`,
+      [id]
+    );
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "Asset not found." });
+    }
+    return response.json({ ok: true, asset: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not accept the asset." });
+  }
+});
+
+app.post("/api/admin/reject-asset", requireAuth, requireAdmin, async (request, response) => {
+  const body = request.body || {};
+  const id = Number(body.id);
+  const source = body.source || "catalog";
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid asset ID is required." });
+  }
+  try {
+    if (source === "creation") {
+      const result = await pool.query(
+        `DELETE FROM creations WHERE id = $1 AND accepted = false RETURNING id`,
+        [id]
+      );
+      if (!result.rows[0]) {
+        return response.status(404).json({ error: "Creation not found or already accepted." });
+      }
+      return response.json({ ok: true });
+    }
+    const result = await pool.query(
+      `DELETE FROM catalog_items WHERE id = $1 AND accepted = false RETURNING id`,
+      [id]
+    );
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "Asset not found or already accepted." });
+    }
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not reject the asset." });
+  }
+});
+
 app.get("/api/catalog/by-code/:code", requireAuth, async (request, response) => {
   const code = Number(request.params.code);
   if (!Number.isInteger(code) || code < 1 || code > 2147483647) {
@@ -1303,8 +1392,8 @@ app.post("/api/create/upload", requireAuth, (request, response, next) => {
   }
   try {
     const result = await pool.query(
-      `INSERT INTO creations (user_id, kind, filename, size, data)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO creations (user_id, kind, filename, size, data, accepted)
+       VALUES ($1, $2, $3, $4, $5, false)
        RETURNING id, kind, filename, size, created_at`,
       [request.user.id, kind, fileName, request.body.length, request.body]
     );
@@ -1335,7 +1424,7 @@ app.get("/api/create/recommended", async (request, response) => {
   try {
     const result = await pool.query(
       `SELECT id, name, icon_type, created_at
-       FROM creations WHERE kind = 'place'
+       FROM creations WHERE kind = 'place' AND accepted = true
        ORDER BY created_at DESC LIMIT 20`
     );
     return response.json({ creations: result.rows });
@@ -1525,7 +1614,7 @@ app.get("/api/create/:id/icon", async (request, response) => {
     return response.status(400).end();
   }
   try {
-    const result = await pool.query("SELECT icon, icon_type FROM creations WHERE id = $1 AND icon IS NOT NULL", [id]);
+    const result = await pool.query("SELECT icon, icon_type FROM creations WHERE id = $1 AND icon IS NOT NULL AND accepted = true", [id]);
     const row = result.rows[0];
     if (!row) {
       return response.status(404).end();
@@ -1582,7 +1671,7 @@ app.get("/api/create/:id/thumbnail", async (request, response) => {
     return response.status(400).end();
   }
   try {
-    const result = await pool.query("SELECT thumbnail, thumbnail_type FROM creations WHERE id = $1 AND thumbnail IS NOT NULL", [id]);
+    const result = await pool.query("SELECT thumbnail, thumbnail_type FROM creations WHERE id = $1 AND thumbnail IS NOT NULL AND accepted = true", [id]);
     const row = result.rows[0];
     if (!row) {
       return response.status(404).end();
