@@ -2472,8 +2472,10 @@ function initAvatar3D(modelUrl = null) {
 
   avatarCharacter = new THREE.Group();
 
-  if (modelUrl && typeof THREE.GLTFLoader !== "undefined") {
-    const loader = new THREE.GLTFLoader();
+  const GLTFLoader = THREE.GLTFLoader || window.GLTFLoader;
+
+  if (modelUrl && GLTFLoader) {
+    const loader = new GLTFLoader();
     loader.load(
       modelUrl,
       (gltf) => {
@@ -2481,14 +2483,19 @@ function initAvatar3D(modelUrl = null) {
         model.scale.set(1.5, 1.5, 1.5);
         model.position.y = -1;
         avatarCharacter.add(model);
+        console.log("GLB loaded successfully:", modelUrl);
       },
-      undefined,
+      (progress) => {
+        console.log("Loading GLB:", progress.loaded, progress.total);
+      },
       (error) => {
         console.error("GLB load failed:", error);
+        console.log("Falling back to procedural character");
         buildProceduralCharacter();
       }
     );
   } else {
+    console.log("No GLB URL or GLTFLoader not available, using procedural character");
     buildProceduralCharacter();
   }
 
