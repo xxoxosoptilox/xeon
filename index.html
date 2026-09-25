@@ -1,4 +1,3 @@
- 
 <!doctype html>
 <html lang="en">
   <head>
@@ -74,7 +73,7 @@
         <div class="home-body">
           <aside class="side-nav" aria-label="Account navigation">
             <div class="side-profile"><img class="avatar-large" src="noFilter.png" alt="" /><strong data-user-name>User</strong></div>
-            <button class="active" id="home-nav-button">⌂ <span>Home</span></button><button type="button" id="catalog-nav-button">▦ <span>Catalog</span></button><button>♙ <span>Profile</span></button><button>▤ <span>Messages</span></button><button id="friends-nav-button">♧ <span>Friends</span><b id="friends-badge" hidden></b></button><button>♙ <span>Avatar</span></button><button>▣ <span>Inventory</span></button><button>◁ <span>Trade</span></button><button>♧ <span>Communities</span></button><button type="button" id="support-nav-button">✉ <span>Support</span></button>
+            <button class="active" id="home-nav-button">⌂ <span>Home</span></button><button type="button" id="catalog-nav-button">▦ <span>Catalog</span></button><button>♙ <span>Profile</span></button><button>▤ <span>Messages</span></button><button id="friends-nav-button">♧ <span>Friends</span><b id="friends-badge" hidden></b></button><button id="avatar-nav-button">♙ <span>Avatar</span></button><button>▣ <span>Inventory</span></button><button>◁ <span>Trade</span></button><button>♧ <span>Communities</span></button><button type="button" id="support-nav-button">✉ <span>Support</span></button>
             <button class="premium-button">Get Premium</button>
             <button class="admin-panel-button" id="admin-nav-button" type="button" hidden>Admin Panel</button>
           </aside>
@@ -243,6 +242,12 @@
                 <p class="admin-hint">Delete removes the item and its code. Delete &amp; Refund also returns every buyer the exact Robux they spent.</p>
                 <p class="settings-status" id="admin-delete-status" role="status" aria-live="polite"></p>
               </div>
+              <div class="admin-card" aria-labelledby="admin-accept-title">
+                <h3 id="admin-accept-title">Accept Assets</h3>
+                <p class="admin-hint">Assets below are hidden from users until accepted.</p>
+                <ul class="admin-pending-list" id="admin-pending-list"></ul>
+                <p class="settings-status" id="admin-accept-status" role="status" aria-live="polite"></p>
+              </div>
             </section>
             <section class="home-section" id="create-page" hidden>
               <div class="create-tabs" id="create-tabs">
@@ -344,6 +349,54 @@
                     <p class="settings-status" id="configure-access-status" role="status" aria-live="polite"></p>
                   </div>
                   <p class="configure-empty" id="configure-empty" hidden></p>
+                </div>
+              </div>
+            </section>
+            <section class="home-section" id="avatar-page" hidden>
+              <div class="avatar-editor">
+                <header class="avatar-editor-header">
+                  <h2>Avatar Editor</h2>
+                  <div class="avatar-editor-header-right">
+                    <span class="avatar-editor-hint">Explore the catalog to find more clothes!</span>
+                    <button class="avatar-get-more" type="button">Get More</button>
+                  </div>
+                </header>
+                <div class="avatar-editor-body">
+                  <div class="avatar-preview-column">
+                    <div class="avatar-preview-box">
+                      <div class="avatar-rig-toggle">
+                        <button class="avatar-rig-btn active" data-rig="R6" type="button">R6</button>
+                        <button class="avatar-rig-btn" data-rig="R15" type="button">R15</button>
+                      </div>
+                      <div class="avatar-preview-placeholder"></div>
+                      <button class="avatar-view-toggle" data-view="2d" type="button">2D</button>
+                    </div>
+                    <div class="avatar-scaling">
+                      <h3>Scaling</h3>
+                      <label class="scaling-row"><span>Height</span><input class="scaling-slider" type="range" min="0" max="200" value="100" /><span class="scaling-value">100%</span></label>
+                      <label class="scaling-row"><span>Width</span><input class="scaling-slider" type="range" min="0" max="200" value="100" /><span class="scaling-value">100%</span></label>
+                      <label class="scaling-row"><span>Head</span><input class="scaling-slider" type="range" min="0" max="200" value="100" /><span class="scaling-value">100%</span></label>
+                      <label class="scaling-row"><span>Proportion</span><input class="scaling-slider" type="range" min="0" max="100" value="0" /><span class="scaling-value">0%</span></label>
+                    </div>
+                  </div>
+                  <div class="avatar-items-column">
+                    <div class="avatar-tabs">
+                      <button class="avatar-tab active" type="button" data-tab="recent">Recent</button>
+                      <button class="avatar-tab" type="button" data-tab="clothing">Clothing</button>
+                      <button class="avatar-tab" type="button" data-tab="body">Body</button>
+                      <button class="avatar-tab" type="button" data-tab="animations">Animations</button>
+                      <button class="avatar-tab" type="button" data-tab="outfits">Outfits</button>
+                    </div>
+                    <div class="avatar-subtabs" id="avatar-subtabs"></div>
+                    <div class="avatar-items-grid" id="avatar-items-grid"></div>
+                    <div class="avatar-outfits-pane" id="avatar-outfits-pane" hidden>
+                      <div class="avatar-outfits-header">
+                        <span>Outfits</span>
+                        <button class="avatar-create-outfit" type="button">Create New Outfit</button>
+                      </div>
+                      <p class="avatar-outfits-empty">You don't have any outfits. Try creating some!</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>
