@@ -1334,7 +1334,7 @@ app.get("/api/create/mine", requireAuth, async (request, response) => {
 app.get("/api/create/recommended", async (request, response) => {
   try {
     const result = await pool.query(
-      `SELECT id, name, thumbnail_type, created_at
+      `SELECT id, name, icon_type, created_at
        FROM creations WHERE kind = 'place'
        ORDER BY created_at DESC LIMIT 20`
     );
