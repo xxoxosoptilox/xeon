@@ -45,7 +45,8 @@ const PUBLIC_FILES = new Set([
   "Firefly_RemoveBackground.png",
   "Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png",
   "login-bg.jpg",
-  "favicon.ico"
+  "favicon.ico",
+  "character.glb"
 ]);
 
 app.use(cors());
