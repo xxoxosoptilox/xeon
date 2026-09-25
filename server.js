@@ -1030,8 +1030,8 @@ app.post("/api/admin/update-asset", requireAuth, requireAdmin, async (request, r
       : await pool.query(
           `INSERT INTO catalog_items
              (name, description, category, creator_name, creator_type, currency, price, rap, stock,
-              is_limited, is_limited_unique, is_new, is_available, thumbnail_url, source_asset_id, remote_thumbnail_url)
-           VALUES ($1, $2, $3, $4, $5, 'robux', $6, $7, $8, $9, $10, true, $11, $12, $13, $14)
+              is_limited, is_limited_unique, is_new, is_available, thumbnail_url, source_asset_id, remote_thumbnail_url, accepted)
+           VALUES ($1, $2, $3, $4, $5, 'robux', $6, $7, $8, $9, $10, true, $11, $12, $13, $14, true)
            RETURNING *`,
           values
         );
