@@ -138,6 +138,8 @@ function normalizeUser(row) {
     isAdmin: isAdminUsername(row.username),
     discordId: row.discord_id || "",
     discordUsername: row.discord_username || "",
+    banned: row.banned || false,
+    banReason: row.ban_reason || "",
     createdAt: row.created_at
   };
 }
@@ -155,6 +157,9 @@ async function requireAuth(request, response, next) {
     const user = result.rows[0];
     if (!user) {
       return response.status(401).json({ error: "Your session expired. Please log in again." });
+    }
+    if (user.banned) {
+      return response.status(403).json({ error: "This account has been banned.", banned: true, ban_reason: user.ban_reason || "" });
     }
     request.sessionToken = token;
     request.user = normalizeUser(user);
