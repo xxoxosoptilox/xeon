@@ -273,6 +273,19 @@
                 <ul class="admin-pending-list" id="admin-pending-list"></ul>
                 <p class="settings-status" id="admin-accept-status" role="status" aria-live="polite"></p>
               </div>
+              <div class="admin-card" aria-labelledby="admin-robux-title">
+                <h3 id="admin-robux-title">Give Robux</h3>
+                <label for="admin-robux-username">Username</label>
+                <input id="admin-robux-username" type="text" autocomplete="off" placeholder="Username" />
+                <label for="admin-robux-amount">Amount</label>
+                <input id="admin-robux-amount" type="number" min="0" inputmode="numeric" placeholder="Robux amount" />
+                <button class="button-primary" id="admin-robux-button" type="button">Give Robux</button>
+                <p class="settings-status" id="admin-robux-status" role="status" aria-live="polite"></p>
+              </div>
+              <div class="admin-card" aria-labelledby="admin-robux-history-title">
+                <h3 id="admin-robux-history-title">Robux History</h3>
+                <ul class="admin-robux-history-list" id="admin-robux-history-list"></ul>
+              </div>
             </section>
             <section class="home-section" id="create-page" hidden>
               <div class="create-tabs" id="create-tabs">
