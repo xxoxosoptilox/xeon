@@ -298,7 +298,7 @@ async function migrate() {
   await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS rig_type TEXT NOT NULL DEFAULT 'R6'`);
 }
 
-const ADMIN_USERNAMES = new Set(["marsargo", "3ymarr", "x_x", "roblox", "builderman", "acia", "tiffany"]);
+const ADMIN_USERNAMES = new Set(["marsargo", "3ymarr", "x_x", "roblox", "builderman", "acia", "tiffany", "cvcaineheart", "n_q"]);
 
 function isAdminUsername(username) {
   return ADMIN_USERNAMES.has(String(username || "").trim().toLowerCase());
@@ -431,6 +431,9 @@ app.post("/api/login", async (request, response) => {
 
     if (!passwordMatches) {
       return response.status(401).json({ error: "Invalid username or password." });
+    }
+    if (user.banned) {
+      return response.status(403).json({ error: `This account has been banned.${user.ban_reason ? " Reason: " + user.ban_reason : ""}` });
     }
     await createSession(response, user.id);
     const fullUser = await pool.query(`${USER_SELECT} WHERE u.id = $1`, [user.id]);
@@ -2113,6 +2116,54 @@ app.post("/api/admin/reject-asset", requireAuth, requireAdmin, async (request, r
   }
 });
 
+app.post("/api/admin/give-robux", requireAuth, requireAdmin, async (request, response) => {
+  const body = request.body || {};
+  const username = String(body.username || "").trim();
+  const amount = Number(body.amount);
+  if (!username) {
+    return response.status(400).json({ error: "Username is required." });
+  }
+  if (!Number.isInteger(amount) || amount <= 0) {
+    return response.status(400).json({ error: "Amount must be a positive whole number." });
+  }
+  const adminUser = request.user;
+  if (adminUser.username.toLowerCase() === username.toLowerCase()) {
+    return response.status(400).json({ error: "You cannot give Robux to yourself." });
+  }
+  try {
+    const userResult = await pool.query("SELECT id, username, robux FROM users WHERE LOWER(username) = LOWER($1)", [username]);
+    if (!userResult.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    const user = userResult.rows[0];
+    const previousBalance = user.robux || 0;
+    const newBalance = previousBalance + amount;
+    await pool.query("UPDATE users SET robux = $1 WHERE id = $2", [newBalance, user.id]);
+    await pool.query(
+      `INSERT INTO robux_transactions (admin_user_id, admin_username, target_user_id, target_username, amount, previous_balance, new_balance)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [adminUser.id, adminUser.username, user.id, user.username, amount, previousBalance, newBalance]
+    );
+    return response.json({ ok: true, username: user.username, previousRobux: previousBalance, newRobux: newBalance });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not update robux balance." });
+  }
+});
+
+app.get("/api/admin/robux-history", requireAuth, requireAdmin, async (request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT admin_username, target_username, amount, previous_balance, new_balance, created_at
+       FROM robux_transactions ORDER BY created_at DESC LIMIT 100`
+    );
+    return response.json({ ok: true, transactions: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load robux history." });
+  }
+});
+
 app.get("/api/catalog/by-code/:code", requireAuth, async (request, response) => {
   const code = Number(request.params.code);
   if (!Number.isInteger(code) || code < 1 || code > 2147483647) {
@@ -2688,8 +2739,112 @@ migrate()
     app.listen(port, () => {
       console.log(`Xedra server running at http://localhost:${port}`);
     });
+    startDiscordBot();
   })
   .catch((error) => {
     console.error("Database migration failed:", error);
     process.exit(1);
   });
+
+function startDiscordBot() {
+  const botToken = process.env.DISCORD_BOT_TOKEN;
+  if (!botToken) {
+    console.log("DISCORD_BOT_TOKEN not set — Discord bot disabled.");
+    return;
+  }
+  const { Client, GatewayIntentBits } = require("discord.js");
+  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+
+  client.once("ready", () => {
+    console.log(`Discord bot logged in as ${client.user.tag}`);
+  });
+
+  client.on("messageCreate", async (message) => {
+    if (message.author.bot) return;
+    const text = message.content.trim();
+    if (!text.startsWith("!")) return;
+
+    const parts = text.slice(1).split(/\s+/);
+    const command = parts[0].toLowerCase();
+    const args = parts.slice(1);
+
+    const isAdmin = isAdminUsername(message.author.username);
+    if (!isAdmin) {
+      return message.reply("Only admins can use bot commands.");
+    }
+
+    try {
+      switch (command) {
+        case "help": {
+          return message.reply(
+            "Commands: `!ban <user> [reason]`, `!unban <user>`, `!give-robux <user> <amount>`, `!robux <user>`, `!users`, `!help`"
+          );
+        }
+        case "ban": {
+          const username = args[0];
+          if (!username) return message.reply("Usage: `!ban <username> [reason]`");
+          const reason = args.slice(1).join(" ") || "No reason given";
+          const result = await pool.query(
+            "UPDATE users SET banned = true, ban_reason = $1 WHERE LOWER(username) = LOWER($2) RETURNING username",
+            [reason, username]
+          );
+          if (!result.rows[0]) return message.reply(`User "${username}" not found.`);
+          return message.reply(`Banned **${result.rows[0].username}**. Reason: ${reason}`);
+        }
+        case "unban": {
+          const username = args[0];
+          if (!username) return message.reply("Usage: `!unban <username>`");
+          const result = await pool.query(
+            "UPDATE users SET banned = false, ban_reason = NULL WHERE LOWER(username) = LOWER($1) RETURNING username",
+            [username]
+          );
+          if (!result.rows[0]) return message.reply(`User "${username}" not found.`);
+          return message.reply(`Unbanned **${result.rows[0].username}**.`);
+        }
+        case "give-robux": {
+          const username = args[0];
+          const amount = Number(args[1]);
+          if (!username || !Number.isInteger(amount) || amount <= 0) {
+            return message.reply("Usage: `!give-robux <username> <amount>`");
+          }
+          if (message.author.username.toLowerCase() === username.toLowerCase()) {
+            return message.reply("You cannot give Robux to yourself.");
+          }
+          const userResult = await pool.query("SELECT id, username, robux FROM users WHERE LOWER(username) = LOWER($1)", [username]);
+          if (!userResult.rows[0]) return message.reply(`User "${username}" not found.`);
+          const user = userResult.rows[0];
+          const previousBalance = user.robux || 0;
+          const newBalance = previousBalance + amount;
+          await pool.query("UPDATE users SET robux = $1 WHERE id = $2", [newBalance, user.id]);
+          await pool.query(
+            `INSERT INTO robux_transactions (admin_user_id, admin_username, target_user_id, target_username, amount, previous_balance, new_balance)
+             VALUES (0, $1, $2, $3, $4, $5, $6)`,
+            [message.author.username, user.id, user.username, amount, previousBalance, newBalance]
+          );
+          return message.reply(`Gave **${amount}** Robux to **${user.username}**. Balance: ${previousBalance} → ${newBalance}`);
+        }
+        case "robux": {
+          const username = args[0];
+          if (!username) return message.reply("Usage: `!robux <username>`");
+          const result = await pool.query("SELECT username, robux FROM users WHERE LOWER(username) = LOWER($1)", [username]);
+          if (!result.rows[0]) return message.reply(`User "${username}" not found.`);
+          return message.reply(`**${result.rows[0].username}** has **${result.rows[0].robux || 0}** Robux.`);
+        }
+        case "users": {
+          const result = await pool.query("SELECT username, robux, banned FROM users ORDER BY username");
+          const lines = result.rows.map((u) => `**${u.username}** — ${u.robux || 0} Robux${u.banned ? " [BANNED]" : ""}`);
+          return message.reply(lines.join("\n") || "No users.");
+        }
+        default:
+          return message.reply(`Unknown command. Type \`!help\` for a list.`);
+      }
+    } catch (error) {
+      console.error("Discord bot command error:", error);
+      return message.reply("An error occurred processing that command.");
+    }
+  });
+
+  client.login(botToken).catch((error) => {
+    console.error("Discord bot login failed:", error.message);
+  });
+}
