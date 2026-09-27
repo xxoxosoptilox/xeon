@@ -1409,6 +1409,7 @@ const adminUpdateCategory = document.querySelector("#admin-update-category");
 const adminUpdateButton = document.querySelector("#admin-update-button");
 const adminUpdateStatus = document.querySelector("#admin-update-status");
 const adminUpdateAssetType = document.querySelector("#admin-update-asset-type");
+const adminUpdateModel = document.querySelector("#admin-update-model");
 const adminDeleteCode = document.querySelector("#admin-delete-code");
 const adminDeleteButton = document.querySelector("#admin-delete-button");
 const adminRefundButton = document.querySelector("#admin-refund-button");
@@ -1605,6 +1606,21 @@ adminImportButton.addEventListener("click", async () => {
   void loadAdminCodes();
 });
 
+// Ask the server to pull the item's Roblox assets and assemble a .glb from them.
+async function buildRobloxModel(itemId) {
+  const { ok, result } = await apiCall("POST", `/api/admin/catalog-items/${itemId}/build-model`, {});
+  if (ok && result.built) {
+    const skin = result.textureAssetId
+      ? ", skinned"
+      : result.solidColor ? `, flat colour rgb(${result.solidColor.join(",")})` : ", no colour from Roblox";
+    return ` with a 3D model built from Roblox (${result.triangles} triangles${skin})`;
+  }
+  if (ok && result.reason) {
+    return " with its 3D model";
+  }
+  return `, but its 3D model could not be built: ${result.error || "the build failed"}`;
+}
+
 adminUpdateButton.addEventListener("click", async () => {
   adminUpdateButton.disabled = true;
   setStatus(adminUpdateStatus, "Creating catalog item...");
@@ -1617,12 +1633,66 @@ adminUpdateButton.addEventListener("click", async () => {
     assetType: adminUpdateAssetType.value
   };
   const { ok, result } = await apiCall("POST", "/api/admin/update-asset", payload);
-  adminUpdateButton.disabled = false;
   if (!ok) {
+    adminUpdateButton.disabled = false;
     setStatus(adminUpdateStatus, result.error || "Could not update the asset.", true);
     return;
   }
-  setStatus(adminUpdateStatus, `"${result.item.name}" is now live in the catalog.`);
+  const modelFile = adminUpdateModel.files[0];
+  let modelNotice = "";
+  if (modelFile) {
+    const modelExtension = modelFile.name.split(".").pop().toLowerCase();
+    if (modelExtension !== "glb" && modelExtension !== "rbxm" && modelExtension !== "rbxmx") {
+      adminUpdateButton.disabled = false;
+      setStatus(adminUpdateStatus, "Choose a .glb, .rbxm, or .rbxmx file.", true);
+      return;
+    }
+    const modelResponse = await fetch(`/api/admin/catalog-items/${result.item.id}/model`, {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/octet-stream", "X-Model-Format": modelExtension },
+      body: modelFile
+    });
+    const modelResult = await modelResponse.json().catch(() => ({}));
+    if (!modelResponse.ok) {
+      adminUpdateButton.disabled = false;
+      setStatus(adminUpdateStatus, `Item created, but the model was not attached: ${modelResult.error || "Upload failed."}`, true);
+      return;
+    }
+    if (modelResult.requiresConversion) {
+      const references = (modelResult.assetReferences || []).join(", ") || "none found";
+      const retrieval = modelResult.retrieval || {};
+      if (retrieval.status === "missing_api_key") {
+        modelNotice = `; RBXM saved; found asset references ${references}; configure ROBLOX_API_KEY on the server to test access`;
+      } else if (retrieval.status === "all_assets_retrieved") {
+        modelNotice = `; RBXM saved; retrieved ${retrieval.assets.length} referenced asset files; GLB conversion is still pending`;
+      } else if (retrieval.status === "some_assets_failed") {
+        const failedIds = retrieval.assets.filter((asset) => !asset.ok).map((asset) => asset.assetId).join(", ");
+        modelNotice = `; RBXM saved; could not retrieve asset references ${failedIds}`;
+      } else if (retrieval.status === "mesh_unavailable") {
+        const denied = (retrieval.assets || []).find((asset) => asset.assetId === retrieval.meshAssetId);
+        modelNotice = `; RBXM saved; Roblox refused to send the 3D shape (asset ${retrieval.meshAssetId || "not found"}${denied?.error ? `: ${denied.error}` : ""})`;
+      } else if (retrieval.status === "no_references_found") {
+        modelNotice = "; RBXM saved but it references no Roblox assets, so there is nothing to convert";
+      } else {
+        modelNotice = `; RBXM saved; asset references: ${references}; ${retrieval.message || "GLB conversion is still pending"}`;
+      }
+    } else {
+      modelNotice = " with its 3D model";
+    }
+    if (modelResult.detectedFromContent) {
+      modelNotice = `; file contents are .${modelResult.modelFormat} despite the .${modelExtension} extension${modelNotice}`;
+    }
+    if (modelResult.retrieval?.status === "all_assets_retrieved" || modelResult.retrieval?.status === "some_assets_failed") {
+      setStatus(adminUpdateStatus, "Converting the RBXM into a 3D model...");
+      modelNotice = await buildRobloxModel(result.item.id);
+    }
+  } else {
+    setStatus(adminUpdateStatus, "Building the 3D model from Roblox...");
+    modelNotice = await buildRobloxModel(result.item.id);
+  }
+  adminUpdateButton.disabled = false;
+  setStatus(adminUpdateStatus, `"${result.item.name}" is now live in the catalog${modelNotice}.`);
   adminImportResult.hidden = true;
   adminUpdateCode.value = "";
   adminUpdatePrice.value = "";
@@ -1630,6 +1700,7 @@ adminUpdateButton.addEventListener("click", async () => {
   adminUpdateStock.value = "";
   adminUpdateCategory.value = "";
   adminUpdateAssetType.value = "";
+  adminUpdateModel.value = "";
   void loadAdminCodes();
   openItemPage(result.item.id);
 });
@@ -2438,6 +2509,67 @@ scalingSliders.forEach((slider) => {
 let avatarScene, avatarCamera, avatarRenderer, avatarCharacter, avatarAnimationId, avatarControls;
 const equippedItems = new Map();
 
+function isAvatarFace(item) {
+  const assetType = item.assetType ?? item.asset_type;
+  const category = String(item.category || "").toLowerCase();
+  return Number(assetType) === 18 ||
+    category === "faces" ||
+    category === "featured_faces";
+}
+
+async function detectRenderFileFormat(file) {
+  const header = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+  if (
+    header.length >= 12 &&
+    header[0] === 0x67 && header[1] === 0x6c && header[2] === 0x54 && header[3] === 0x46 &&
+    new DataView(header.buffer).getUint32(4, true) === 2 &&
+    new DataView(header.buffer).getUint32(8, true) === file.size
+  ) {
+    return "glb";
+  }
+  if (header.length >= 8 && String.fromCharCode(...header.subarray(0, 8)) === "<roblox!") {
+    return "rbxm";
+  }
+  return null;
+}
+
+function findAvatarHead() {
+  if (!avatarCharacter) return null;
+  let headMesh = null;
+  let headBounds = null;
+  let highestHeadCenter = -Infinity;
+  avatarCharacter.updateMatrixWorld(true);
+  avatarCharacter.traverse((candidate) => {
+    if (!candidate.isMesh) return;
+    const bounds = new THREE.Box3().setFromObject(candidate);
+    const size = bounds.getSize(new THREE.Vector3());
+    const center = bounds.getCenter(new THREE.Vector3());
+    if (size.x < 0.75 || size.y < 0.75 || center.y <= highestHeadCenter) return;
+    headMesh = candidate;
+    headBounds = bounds;
+    highestHeadCenter = center.y;
+  });
+  return headMesh ? { mesh: headMesh, bounds: headBounds, size: headBounds.getSize(new THREE.Vector3()) } : null;
+}
+
+function disposeEquippedObject(object) {
+  const geometries = new Set();
+  const materials = new Set();
+  const textures = new Set();
+  object.traverse((child) => {
+    if (child.geometry) geometries.add(child.geometry);
+    const childMaterials = Array.isArray(child.material) ? child.material : [child.material];
+    for (const material of childMaterials) {
+      if (!material) continue;
+      materials.add(material);
+      if (material.map) textures.add(material.map);
+    }
+  });
+  geometries.forEach((geometry) => geometry.dispose());
+  textures.forEach((texture) => texture.dispose());
+  materials.forEach((material) => material.dispose());
+}
+
 function initAvatar3D(modelUrl = null) {
   const container = document.querySelector(".avatar-preview-box");
   if (!container || typeof THREE === "undefined") return;
@@ -2505,6 +2637,11 @@ function initAvatar3D(modelUrl = null) {
         model.scale.set(1.5, 1.5, 1.5);
         model.position.y = -1;
         avatarCharacter.add(model);
+        for (const item of equippedItems.values()) {
+          if (!equippedGroup.getObjectByName(`equip-${item.id}`)) {
+            addEquippedModel(item);
+          }
+        }
         console.log("GLB loaded successfully:", modelUrl);
       },
       (progress) => {
@@ -2592,7 +2729,7 @@ function showAvatarPage() {
   renderAvatarSubtabs("recent");
   void loadOwnedItems();
   void loadEquippedItems();
-  setTimeout(() => initAvatar3D("character.glb"), 100);
+  setTimeout(() => initAvatar3D("r6.glb"), 100);
 }
 
 async function loadOwnedItems() {
@@ -2642,11 +2779,7 @@ async function loadEquippedItems() {
     });
     childrenToRemove.forEach((child) => {
       equippedGroup.remove(child);
-      child.geometry.dispose();
-      if (child.material.map) {
-        child.material.map.dispose();
-      }
-      child.material.dispose();
+      disposeEquippedObject(child);
     });
   }
   try {
@@ -2655,27 +2788,41 @@ async function loadEquippedItems() {
     if (!response.ok || !Array.isArray(result.items)) {
       return;
     }
+    let hasEquippedFace = false;
+    const duplicateFaceIds = [];
     for (const item of result.items) {
       const catalogItemId = item.catalog_item_id;
-      equippedItems.set(catalogItemId, {
+      const itemData = {
         id: catalogItemId,
         name: item.name,
         category: item.category,
         assetType: item.asset_type,
-        thumbnailUrl: item.thumbnail_url
-      });
+        modelFormat: item.model_format,
+        thumbnailUrl: item.thumbnail_url,
+        modelUrl: item.model_url
+      };
+      if (isAvatarFace(itemData)) {
+        if (hasEquippedFace) {
+          duplicateFaceIds.push(catalogItemId);
+          continue;
+        }
+        hasEquippedFace = true;
+      }
+      equippedItems.set(catalogItemId, itemData);
       const card = document.querySelector(`.avatar-item-card[data-item-id="${catalogItemId}"]`);
       if (card) {
         card.classList.add("selected");
       }
-      addEquippedModel({
-        id: catalogItemId,
-        name: item.name,
-        category: item.category,
-        assetType: item.asset_type,
-        thumbnailUrl: item.thumbnail_url
-      });
+      addEquippedModel(itemData);
     }
+    await Promise.all(duplicateFaceIds.map((catalogItemId) =>
+      fetch(`${apiBase}/api/avatar/unequip`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ catalogItemId })
+      }).catch(() => {})
+    ));
   } catch {
     // silently fail
   }
@@ -2683,29 +2830,51 @@ async function loadEquippedItems() {
 
 async function toggleEquipItem(item, card) {
   const catalogItemId = item.catalog_item_id || item.id;
-  const isSelected = card.classList.toggle("selected");
+  const isSelected = card.classList.contains("selected");
   const itemData = {
     id: catalogItemId,
     name: item.name,
     category: item.category,
-    assetType: item.asset_type,
-    thumbnailUrl: item.thumbnail_url
+    assetType: item.assetType ?? item.asset_type,
+    modelFormat: item.modelFormat ?? item.model_format,
+    thumbnailUrl: item.thumbnailUrl ?? item.thumbnail_url,
+    modelUrl: item.modelUrl ?? item.model_url
   };
   console.log("Toggle equip:", { isSelected, itemData });
   if (isSelected) {
-    equippedItems.set(catalogItemId, itemData);
-    console.log("Avatar character exists:", !!avatarCharacter);
-    addEquippedModel(itemData);
-    await fetch(`${apiBase}/api/avatar/equip`, {
+    card.classList.remove("selected");
+    equippedItems.delete(catalogItemId);
+    removeEquippedModel(catalogItemId);
+    await fetch(`${apiBase}/api/avatar/unequip`, {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ catalogItemId })
     }).catch(() => {});
   } else {
-    equippedItems.delete(catalogItemId);
-    removeEquippedModel(catalogItemId);
-    await fetch(`${apiBase}/api/avatar/unequip`, {
+    card.classList.add("selected");
+    const replacedFaceIds = [];
+    if (isAvatarFace(itemData)) {
+      for (const [equippedId, equippedItem] of equippedItems) {
+        if (isAvatarFace(equippedItem) && String(equippedId) !== String(catalogItemId)) {
+          equippedItems.delete(equippedId);
+          removeEquippedModel(equippedId);
+          document.querySelector(`.avatar-item-card[data-item-id="${equippedId}"]`)?.classList.remove("selected");
+          replacedFaceIds.push(equippedId);
+        }
+      }
+    }
+    equippedItems.set(catalogItemId, itemData);
+    addEquippedModel(itemData);
+    await Promise.all(replacedFaceIds.map((replacedId) =>
+      fetch(`${apiBase}/api/avatar/unequip`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ catalogItemId: replacedId })
+      }).catch(() => {})
+    ));
+    await fetch(`${apiBase}/api/avatar/equip`, {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -2730,14 +2899,88 @@ function addEquippedModel(item) {
 
   let assetType = item.assetType;
   const category = (item.category || "").toLowerCase();
+  const isFaceItem = isAvatarFace(item);
+  const modelUrl = item.modelUrl || item.model_url;
+  const modelFormat = item.modelFormat || item.model_format;
   const thumbnailUrl = item.thumbnailUrl;
   let mesh;
 
   console.log("Equipping item:", { id: item.id, name: item.name, assetType, category, thumbnailUrl });
 
+  if (!modelUrl && modelFormat === "rbxm") {
+    console.warn("rbxm model needs GLB conversion, rendering placeholder:", item.name);
+  }
+
+  if (modelUrl) {
+    const GLTFLoader = THREE.GLTFLoader || window.GLTFLoader;
+    if (!GLTFLoader) {
+      console.error("GLTFLoader is unavailable for item model:", item.name);
+      return;
+    }
+    mesh = new THREE.Group();
+    mesh.name = `equip-${item.id}`;
+    equippedGroup.add(mesh);
+    const loader = new GLTFLoader();
+    loader.load(
+      modelUrl,
+      (gltf) => {
+        if (mesh.parent !== equippedGroup) {
+          disposeEquippedObject(gltf.scene);
+          return;
+        }
+        const model = gltf.scene;
+        // Hats and hair accessories share the same placement: stud-accurate scale, rotated to face
+        // forward, sitting on the head with a small forward offset.
+        const isHat = Number(assetType) === 8 || Number(assetType) === 41 || Number(assetType) === 48 || Number(assetType) === 49;
+        const avatarHead = isHat ? findAvatarHead() : null;
+        if (avatarHead) {
+          model.updateMatrixWorld(true);
+          const sourceBounds = new THREE.Box3().setFromObject(model);
+          const sourceSize = sourceBounds.getSize(new THREE.Vector3());
+          if (sourceSize.x > 0) {
+            // Roblox legacy meshes are measured in studs and a head is two studs wide, so a hat
+            // already carries its real proportions; hair is authored loose and gets stretched to fit.
+            const hatScale = Number(assetType) === 49
+              ? avatarHead.size.x / 2 * 1.7
+              : avatarHead.size.x / 2 * 0.85;
+            model.scale.multiplyScalar(isHat
+              ? hatScale
+              : avatarHead.size.x * 1.08 / sourceSize.x);
+            model.updateMatrixWorld(true);
+            const modelBounds = new THREE.Box3().setFromObject(model);
+            const modelCenter = modelBounds.getCenter(new THREE.Vector3());
+            const headCenter = avatarHead.bounds.getCenter(new THREE.Vector3());
+            model.position.x += headCenter.x - modelCenter.x;
+            if (Number(assetType) === 48) {
+              // Hat with ears (headphones) — centered on the head, pushed slightly down.
+              model.position.y += headCenter.y - modelCenter.y - 0.5;
+            } else {
+              model.position.y += avatarHead.bounds.max.y - modelBounds.min.y - 0.35;
+            }
+            model.position.z += headCenter.z - modelCenter.z + 0.12;
+            model.rotation.y = Math.PI;
+          }
+        }
+        mesh.add(model);
+        console.log("3D item model loaded:", item.name, modelUrl);
+      },
+      undefined,
+      (error) => {
+        console.error("3D item model failed to load:", item.name, error);
+        if (mesh.parent) equippedGroup.remove(mesh);
+      }
+    );
+    return;
+  }
+
+  if (Number(assetType) === 41) {
+    // Hair - render as textured box on top of head (like a hat)
+    assetType = 8;
+  }
+
   // Fallback: infer asset type from category if not set
   if (!assetType && assetType !== 0) {
-    if (category === "faces") {
+    if (isFaceItem) {
       assetType = 18;
     } else if (category === "hats" || category === "accessories") {
       assetType = 8;
@@ -2756,6 +2999,11 @@ function addEquippedModel(item) {
       thumbnailUrl,
       (loadedTexture) => {
         console.log("Texture loaded for:", item.name);
+        if (assetType === 18) {
+          loadedTexture.repeat.set(0.72, 0.72);
+          loadedTexture.offset.set(0.14, 0.14);
+          loadedTexture.updateMatrix();
+        }
         loadedTexture.needsUpdate = true;
         if (mesh && mesh.material) {
           mesh.material.map = loadedTexture;
@@ -2774,9 +3022,8 @@ function addEquippedModel(item) {
       side: THREE.DoubleSide
     });
   } else {
-    console.warn("No thumbnail URL for item:", item.name);
-    const color = getItemColor(item.name);
-    material = new THREE.MeshLambertMaterial({ color });
+    if (!thumbnailUrl) console.warn("No thumbnail URL for item:", item.name);
+    material = new THREE.MeshLambertMaterial({ color: getItemColor(item.name) });
   }
 
   // Character is scaled 1.5x and positioned at y=-1
@@ -2786,15 +3033,49 @@ function addEquippedModel(item) {
   
   // Roblox AvatarAssetType IDs for precise placement (in world coordinates)
   if (assetType === 18) {
-    // Face - front of head
-    const geo = new THREE.PlaneGeometry(1.2, 1.0);
-    mesh = new THREE.Mesh(geo, material);
-    mesh.position.set(0, 1.35, 0.52);
-  } else if (assetType === 8 || assetType === 41) {
-    // Hat or HairAccessory - top of head
+    const avatarHead = findAvatarHead();
+    const headMesh = avatarHead?.mesh;
+    const headBounds = avatarHead?.bounds;
+    const headSize = avatarHead?.size;
+    const faceWidth = headSize ? headSize.x * 0.72 : 0.8;
+    const faceHeight = headSize ? headSize.y * 0.68 : 0.75;
+    material.depthWrite = false;
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = -4;
+    if (headBounds && headMesh) {
+      const headCenter = headBounds.getCenter(new THREE.Vector3());
+      const facePosition = new THREE.Vector3(headCenter.x, headCenter.y, headBounds.max.z + 0.002);
+      if (THREE.DecalGeometry) {
+        const faceSize = new THREE.Vector3(faceWidth, faceHeight, headSize.z * 0.3);
+        const faceOrientation = new THREE.Euler();
+        const faceGeometry = new THREE.DecalGeometry(headMesh, facePosition, faceOrientation, faceSize);
+        mesh = new THREE.Mesh(faceGeometry, material);
+      } else {
+        mesh = new THREE.Mesh(new THREE.PlaneGeometry(faceWidth, faceHeight), material);
+        mesh.position.copy(facePosition);
+      }
+    } else {
+      mesh = new THREE.Mesh(new THREE.PlaneGeometry(faceWidth, faceHeight), material);
+      mesh.position.set(0, 1.5, 0.51);
+    }
+  } else if (assetType === 8) {
+    // Hat - place on top of the detected head.
     const geo = new THREE.BoxGeometry(0.8 * scale, 0.4 * scale, 0.8 * scale);
     mesh = new THREE.Mesh(geo, material);
-    mesh.position.set(0, 1.25 + 0.6 * scale, 0);
+    const avatarHead = findAvatarHead();
+    mesh.position.set(0, avatarHead ? avatarHead.bounds.max.y + 0.15 : 2.8, 0);
+  } else if (assetType === 49) {
+    // Fedora - slightly larger than regular hats.
+    const geo = new THREE.BoxGeometry(1.0 * scale, 0.5 * scale, 1.0 * scale);
+    mesh = new THREE.Mesh(geo, material);
+    const avatarHead = findAvatarHead();
+    mesh.position.set(0, avatarHead ? avatarHead.bounds.max.y + 0.15 : 2.8, 0);
+  } else if (assetType === 48) {
+    // Hat with ears - similar to hat but slightly wider to suggest ear shapes.
+    const geo = new THREE.BoxGeometry(1.0 * scale, 0.5 * scale, 0.8 * scale);
+    mesh = new THREE.Mesh(geo, material);
+    const avatarHead = findAvatarHead();
+    mesh.position.set(0, avatarHead ? avatarHead.bounds.max.y + 0.15 : 2.8, 0);
   } else if (assetType === 42) {
     // FaceAccessory - front of face (glasses, mask)
     const geo = new THREE.PlaneGeometry(0.7 * scale, 0.35 * scale);
@@ -2865,11 +3146,7 @@ function removeEquippedModel(itemId) {
   const mesh = equippedGroup.getObjectByName(`equip-${itemId}`);
   if (mesh) {
     equippedGroup.remove(mesh);
-    mesh.geometry.dispose();
-    if (mesh.material.map) {
-      mesh.material.map.dispose();
-    }
-    mesh.material.dispose();
+    disposeEquippedObject(mesh);
   }
 }
 
