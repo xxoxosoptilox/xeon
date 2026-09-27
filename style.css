@@ -461,7 +461,7 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 
 .ban-card {
   background: #1a1a1a;
-  border-radius: 8px;
+  border-radius: 16px;
   padding: 32px;
   max-width: 520px;
   width: 100%;
@@ -504,7 +504,7 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 
 .ban-review-box {
   background: #2a2a2a;
-  border-radius: 6px;
+  border-radius: 12px;
   padding: 16px;
   margin-bottom: 24px;
 }
@@ -531,7 +531,7 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
   color: #fff;
   text-decoration: none;
   padding: 10px 20px;
-  border-radius: 6px;
+  border-radius: 10px;
   font-size: 14px;
   font-weight: 500;
   transition: background 0.2s;
