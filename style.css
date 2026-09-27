@@ -280,8 +280,9 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 .admin-card { margin-bottom: 20px; padding: 18px; border: 1px solid var(--hs-border); border-radius: 8px; background: var(--hs-panel); }
 .admin-card h3 { margin: 0 0 12px; font-size: 16px; }
 .admin-card label { display: block; margin: 12px 0 4px; color: var(--hs-muted); font-size: 12px; font-weight: 700; }
-.admin-card input, .admin-card select { width: 100%; min-height: 34px; border: 1px solid var(--hs-border); border-radius: 5px; padding: 6px 10px; color: var(--text); background: var(--field); font: inherit; font-size: 13px; box-sizing: border-box; }
-.admin-card input:focus, .admin-card select:focus { border-color: #84b8c1; outline: none; box-shadow: 0 0 0 2px #84b8c144; }
+.admin-card input, .admin-card select, .admin-card textarea { width: 100%; min-height: 34px; border: 1px solid var(--hs-border); border-radius: 5px; padding: 6px 10px; color: var(--text); background: var(--field); font: inherit; font-size: 13px; box-sizing: border-box; }
+.admin-card input:focus, .admin-card select:focus, .admin-card textarea:focus { border-color: #84b8c1; outline: none; box-shadow: 0 0 0 2px #84b8c144; }
+.admin-card textarea { min-height: 88px; resize: vertical; }
 .admin-inline-fields { display: flex; gap: 8px; }
 .admin-inline-fields input { flex: 1; }
 .admin-inline-fields .button-primary { white-space: nowrap; }
