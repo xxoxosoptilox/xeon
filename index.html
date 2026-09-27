@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="style.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/DecalGeometry.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   </head>
   <body>
@@ -232,6 +233,8 @@
                 <select id="admin-update-asset-type">
                   <option value="">Select item type</option>
                   <option value="8">Hat</option>
+                  <option value="49">Fedora</option>
+                  <option value="48">Hat (with ears)</option>
                   <option value="11">Shirt</option>
                   <option value="12">Pants</option>
                   <option value="17">Head</option>
@@ -245,6 +248,8 @@
                   <option value="46">Back Accessory</option>
                   <option value="47">Waist Accessory</option>
                 </select>
+                <label for="admin-update-model">3D Model (.glb, .rbxm, or .rbxmx, optional)</label>
+                <input id="admin-update-model" type="file" />
                 <div class="editor-actions">
                   <button class="button-primary button-accent" id="admin-update-button" type="button">Submit</button>
                 </div>
@@ -277,7 +282,7 @@
               <div class="create-body">
                 <div class="create-types" id="create-types">
                   <button class="create-type active" type="button" data-singular="Game" data-plural="Games" data-kind="place" data-exts=".rbxl">Games</button>
-                  <button class="create-type" type="button" data-singular="Model" data-plural="Models" data-kind="model" data-exts=".rbxm">Models</button>
+                  <button class="create-type" type="button" data-singular="Model" data-plural="Models" data-kind="model" data-exts=".rbxm,.rbxmx">Models</button>
                   <button class="create-type" type="button" data-singular="Badge" data-plural="Badges">Badges</button>
                   <button class="create-type" type="button" data-singular="Pass" data-plural="Passes">Passes</button>
                   <button class="create-type" type="button" data-singular="Audio" data-plural="Audio" data-kind="audio" data-exts=".ogg,.mp3">Audio</button>
