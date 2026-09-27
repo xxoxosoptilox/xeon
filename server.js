@@ -48,7 +48,6 @@ const PUBLIC_FILES = new Set([
   "Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png",
   "login-bg.jpg",
   "favicon.ico",
-  "character.glb",
   "r6.glb"
 ]);
 
@@ -935,7 +934,7 @@ function detectModelFormat(buffer) {
     return "rbxm";
   }
   const head = buffer.subarray(0, 64).toString("utf8");
-  if (head.includes("<roblox") && head.includes("<?xml")) {
+  if (head.includes("<roblox") && (head.includes("<?xml") || head.includes("xmlns:"))) {
     return "rbxmx";
   }
   return null;
@@ -1411,6 +1410,8 @@ app.put(
           };
         }
       }
+      const isGlb = modelFormat === "glb";
+      const isRbxm = modelFormat === "rbxm" || modelFormat === "rbxmx";
       return response.json({
         ok: true,
         modelFormat,
