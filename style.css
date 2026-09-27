@@ -447,3 +447,96 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 .avatar-create-outfit { background: #e04f8a; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px; font-weight: 700; cursor: pointer; }
 .avatar-create-outfit:hover { background: #c9407a; }
 .avatar-outfits-empty { color: var(--hs-muted); font-size: 14px; text-align: center; padding: 40px 20px; background: var(--hs-card-bg, #f5f5f5); border-radius: 6px; }
+
+.ban-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+}
+
+.ban-card {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 32px;
+  max-width: 520px;
+  width: 100%;
+  color: #fff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.ban-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.ban-icon {
+  width: 28px;
+  height: 28px;
+  color: #e74c3c;
+}
+
+.ban-header h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.ban-message {
+  font-size: 15px;
+  line-height: 1.5;
+  margin-bottom: 24px;
+  color: #ccc;
+}
+
+.ban-details h3 {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: #fff;
+}
+
+.ban-review-box {
+  background: #2a2a2a;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.ban-review-box p {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #ccc;
+}
+
+.ban-review-box p:last-child {
+  margin-bottom: 0;
+}
+
+.ban-review-box strong {
+  color: #fff;
+  font-weight: 700;
+}
+
+.ban-report-button {
+  display: inline-block;
+  background: #3a3a3a;
+  color: #fff;
+  text-decoration: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.ban-report-button:hover {
+  background: #4a4a4a;
+}
