@@ -144,6 +144,13 @@ function restoreHomeScreen() {
 async function fetchMe() {
   try {
     const response = await fetch(`${apiBase}/api/me`, { credentials: "same-origin" });
+    if (response.status === 403) {
+      const result = await response.json();
+      if (result.banned) {
+        showBanOverlay(result.ban_reason || "");
+        return null;
+      }
+    }
     if (response.status === 401 || !response.ok) {
       return null;
     }
@@ -1781,6 +1788,7 @@ adminRobuxButton.addEventListener("click", async () => {
   adminRobuxUsername.value = "";
   adminRobuxAmount.value = "";
   void loadRobuxHistory();
+  void refreshCurrentUser();
 });
 
 async function loadRobuxHistory() {
