@@ -541,6 +541,26 @@
         </div>
       </div>
     </main>
+    <div class="ban-overlay" id="ban-overlay" hidden aria-hidden="true">
+      <div class="ban-card">
+        <div class="ban-header">
+          <svg class="ban-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+          </svg>
+          <h2>Banned</h2>
+        </div>
+        <p class="ban-message">We banned your account because of repeated or serious rule-breaking.</p>
+        <div class="ban-details">
+          <h3>Latest activity we reviewed</h3>
+          <div class="ban-review-box">
+            <p><strong>Review date:</strong> <span id="ban-review-date"></span></p>
+            <p><strong>Moderator note:</strong> <span id="ban-reason"></span></p>
+          </div>
+        </div>
+        <a href="https://discord.gg/zmdgTMA7Z" target="_blank" rel="noopener" class="ban-report-button">Report a mistake</a>
+      </div>
+    </div>
     <div class="black-screen" id="black-screen" hidden aria-hidden="true"></div>
     <script src="script.js"></script>
   </body>
