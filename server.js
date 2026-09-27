@@ -2770,7 +2770,15 @@ function startDiscordBot() {
     console.log("DISCORD_BOT_TOKEN not set — Discord bot disabled.");
     return;
   }
-  const { Client, GatewayIntentBits } = require("discord.js");
+  let Client, GatewayIntentBits;
+  try {
+    const discord = require("discord.js");
+    Client = discord.Client;
+    GatewayIntentBits = discord.GatewayIntentBits;
+  } catch (error) {
+    console.log("discord.js not installed — Discord bot disabled.");
+    return;
+  }
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
   client.once("ready", () => {
