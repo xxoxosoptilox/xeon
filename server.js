@@ -1,6 +1,7 @@
 const path = require("node:path");
 const fs = require("node:fs");
 const crypto = require("node:crypto");
+const zlib = require("node:zlib");
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
@@ -16,6 +17,7 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const isProduction = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID || "";
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || "";
+const ROBLOX_API_KEY = process.env.ROBLOX_API_KEY || "";
 const PUBLIC_URL = String(process.env.PUBLIC_URL || `http://localhost:${port}`).replace(/\/+$/, "");
 const DISCORD_REDIRECT_URI = `${PUBLIC_URL}/api/discord/callback`;
 const DISCORD_STATE_TTL_MS = 10 * 60 * 1000;
@@ -46,7 +48,8 @@ const PUBLIC_FILES = new Set([
   "Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png",
   "login-bg.jpg",
   "favicon.ico",
-  "character.glb"
+  "character.glb",
+  "r6.glb"
 ]);
 
 app.use(cors());
@@ -220,13 +223,43 @@ async function migrate() {
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS remote_thumbnail_url TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS accepted BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS asset_type INTEGER`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS catalog_item_models (
+    catalog_item_id INTEGER PRIMARY KEY REFERENCES catalog_items(id) ON DELETE CASCADE,
+    model_data BYTEA NOT NULL,
+    model_format TEXT NOT NULL DEFAULT 'glb',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS catalog_item_thumbnails (
+    catalog_item_id INTEGER PRIMARY KEY REFERENCES catalog_items(id) ON DELETE CASCADE,
+    image_data BYTEA NOT NULL,
+    content_type TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`ALTER TABLE catalog_item_models ADD COLUMN IF NOT EXISTS model_format TEXT NOT NULL DEFAULT 'glb'`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS catalog_item_model_assets (
+    catalog_item_id INTEGER NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL,
+    content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    asset_data BYTEA NOT NULL,
+    fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (catalog_item_id, asset_id)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS catalog_item_model_assets (
+    catalog_item_id INTEGER NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL,
+    content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    asset_data BYTEA NOT NULL,
+    fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (catalog_item_id, asset_id)
+  )`);
   await pool.query(`CREATE TABLE IF NOT EXISTS asset_imports (
     code SERIAL PRIMARY KEY,
-    asset_id BIGINT NOT NULL,
+    asset_id BIGINT,
     data JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     catalog_item_id INTEGER REFERENCES catalog_items(id) ON DELETE SET NULL
   )`);
+  await pool.query(`ALTER TABLE asset_imports ALTER COLUMN asset_id DROP NOT NULL`);
   await pool.query(`CREATE TABLE IF NOT EXISTS item_ownership (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -863,6 +896,691 @@ function parseAssetId(input) {
   return /^\d+$/.test(text) ? text : null;
 }
 
+// An .rbxm stores no geometry: it only points at Roblox-hosted assets. Each pointer
+// is preceded by the property name that holds it, so the mesh can be told apart from
+// the skin texture and from unrelated textures such as particle emitters.
+// .rbxmx is the XML variant of the same format; the same labels appear as XML attribute values.
+function extractRbxmReferences(model) {
+  const text = model.toString("latin1");
+  const labelled = [
+    { role: "mesh", label: "MeshId" },
+    { role: "texture", label: "TextureId" }
+  ];
+  const byId = new Map();
+  const capture = (rawId, role) => {
+    if (!byId.has(rawId)) byId.set(rawId, { assetId: rawId, role });
+  };
+  for (const { role, label } of labelled) {
+    let index = -1;
+    while ((index = text.indexOf(label, index + 1)) !== -1) {
+      const match = text.slice(index, index + 200).match(/rbxassetid:\/\/(\d{3,})|\?id=(\d{3,})/i);
+      if (match) capture(match[1] || match[2], role);
+    }
+  }
+  // Files that compress their property chunks expose no labels; keep the raw ids so
+  // the admin still sees what the model references instead of getting an empty list.
+  for (const match of text.matchAll(/rbxassetid:\/\/(\d{3,})|\?id=(\d{3,})/gi)) {
+    capture(match[1] || match[2], "unknown");
+  }
+  const order = { mesh: 0, texture: 1, unknown: 2 };
+  return Array.from(byId.values()).sort((a, b) => order[a.role] - order[b.role]);
+}
+
+function detectModelFormat(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 8) return null;
+  if (buffer.readUInt32LE(0) === 0x46546c67 && buffer.readUInt32LE(4) === 2 && buffer.readUInt32LE(8) === buffer.length) {
+    return "glb";
+  }
+  if (buffer.subarray(0, 8).equals(Buffer.from("<roblox!"))) {
+    return "rbxm";
+  }
+  const head = buffer.subarray(0, 64).toString("utf8");
+  if (head.includes("<roblox") && head.includes("<?xml")) {
+    return "rbxmx";
+  }
+  return null;
+}
+
+async function readLimitedAssetBody(response) {
+  const maxBytes = 20 * 1024 * 1024;
+  const chunks = [];
+  let totalBytes = 0;
+  for await (const chunk of response.body) {
+    totalBytes += chunk.length;
+    if (totalBytes > maxBytes) {
+      throw new Error("Asset exceeds the 20 MB download limit.");
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, totalBytes);
+}
+
+const ASSET_HOST_SUFFIXES = ["roblox.com", "rbxcdn.com", "robloxusercontent.com"];
+
+function resolveAllowedAssetUrl(rawUrl, base) {
+  let target;
+  try {
+    target = new URL(rawUrl, base);
+  } catch {
+    return null;
+  }
+  const hostname = target.hostname.toLowerCase();
+  const allowed = ASSET_HOST_SUFFIXES.some((host) => hostname === host || hostname.endsWith(`.${host}`));
+  return target.protocol === "https:" && allowed ? target : null;
+}
+
+async function downloadAllowedAssetUrl(target) {
+  const response = await fetch(target, { signal: AbortSignal.timeout(20000) });
+  if (!response.ok) {
+    return { ok: false, status: response.status, error: "The asset host refused the download." };
+  }
+  return {
+    ok: true,
+    status: response.status,
+    contentType: response.headers.get("content-type") || "application/octet-stream",
+    assetData: await readLimitedAssetBody(response)
+  };
+}
+
+async function fetchAuthorizedRobloxAsset(assetId) {
+  const endpoint = `https://assetdelivery.roblox.com/v2/assetId/${assetId}`;
+  try {
+    let response = await fetch(endpoint, {
+      headers: { "x-api-key": ROBLOX_API_KEY },
+      redirect: "manual",
+      signal: AbortSignal.timeout(20000)
+    });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const target = resolveAllowedAssetUrl(response.headers.get("location"), endpoint);
+      if (!target) {
+        return { assetId, ok: false, status: response.status, error: "Asset endpoint redirected to an unsupported host." };
+      }
+      const redirected = await downloadAllowedAssetUrl(target);
+      return redirected.ok
+        ? { assetId, ...redirected }
+        : { assetId, ok: false, status: redirected.status, error: redirected.error };
+    }
+    if (!response.ok) {
+      return { assetId, ok: false, status: response.status, error: "Roblox denied or could not retrieve this asset." };
+    }
+    const contentType = response.headers.get("content-type") || "application/octet-stream";
+    if (contentType.toLowerCase().includes("json")) {
+      const payload = await response.json().catch(() => ({}));
+      // Asset Delivery v2 answers 200 with a pointer, not the bytes: the real file lives at
+      // locations[0].location on a signed CDN host, so JSON here is success, not an error.
+      const pointer = Array.isArray(payload.locations) ? payload.locations[0] : null;
+      if (pointer && pointer.location) {
+        const target = resolveAllowedAssetUrl(pointer.location, endpoint);
+        if (!target) {
+          return { assetId, ok: false, error: "Asset delivery pointed at an unsupported host." };
+        }
+        const stored = await downloadAllowedAssetUrl(target);
+        return stored.ok
+          ? { assetId, ...stored, assetFormat: pointer.assetFormat || null }
+          : { assetId, ok: false, status: stored.status, error: stored.error };
+      }
+      const assetError = Array.isArray(payload.errors) ? payload.errors[0] : null;
+      return {
+        assetId,
+        ok: false,
+        status: assetError?.code || response.status,
+        error: assetError?.message || "Roblox returned metadata instead of asset bytes."
+      };
+    }
+    const assetData = await readLimitedAssetBody(response);
+    return {
+      assetId,
+      ok: true,
+      status: response.status,
+      contentType,
+      assetData
+    };
+  } catch (error) {
+    return { assetId, ok: false, error: error.message || "Asset retrieval failed." };
+  }
+}
+
+// Roblox's legacy ".mesh" format is plain text: "version 1.00", a face count, then a flat
+// triangle soup of bracketed triples. Each triangle contributes nine triples grouped as
+// three vertices of [position][normal][texcoord], so indices are implicit rather than stored.
+function decodeLegacyRobloxMesh(bytes) {
+  const text = bytes.toString("latin1");
+  const header = text.match(/^\s*version\s+1\.00\s+(\d+)/i);
+  if (!header) {
+    return null;
+  }
+  const faceCount = Number(header[1]);
+  const triples = text.match(/\[[^\]]*\]/g) || [];
+  if (!faceCount || faceCount > 200000 || triples.length < faceCount * 9) {
+    return null;
+  }
+  const readTriple = (group) => {
+    const parts = group.slice(1, -1).split(",").map(Number);
+    return parts.length === 3 && parts.every(Number.isFinite) ? parts : null;
+  };
+  const vertexCount = faceCount * 3;
+  const positions = new Float32Array(vertexCount * 3);
+  const normals = new Float32Array(vertexCount * 3);
+  const uv = new Float32Array(vertexCount * 2);
+  for (let vertex = 0; vertex < vertexCount; vertex += 1) {
+    const position = readTriple(triples[vertex * 3]);
+    const normal = readTriple(triples[vertex * 3 + 1]);
+    const texcoord = readTriple(triples[vertex * 3 + 2]);
+    if (!position || !normal || !texcoord) {
+      return null;
+    }
+    positions.set(position, vertex * 3);
+    normals.set(normal, vertex * 3);
+    uv[vertex * 2] = texcoord[0];
+    // glTF measures texture V from the bottom edge, Roblox from the top.
+    uv[vertex * 2 + 1] = 1 - texcoord[1];
+  }
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (let vertex = 0; vertex < vertexCount; vertex += 1) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      const value = positions[vertex * 3 + axis];
+      min[axis] = Math.min(min[axis], value);
+      max[axis] = Math.max(max[axis], value);
+    }
+  }
+  return { faceCount, vertexCount, positions, normals, uv, min, max };
+}
+
+function classifyImage(bytes) {
+  if (!bytes || bytes.length < 24) {
+    return null;
+  }
+  if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    return { mimeType: "image/png", width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return { mimeType: "image/jpeg", width: 0, height: 0 };
+  }
+  return null;
+}
+
+// A 1x1 PNG is how Roblox stores a flat-coloured item: the lone pixel *is* the colour, so
+// it has to be lifted into the material instead of being thrown away as a blank placeholder.
+function readSolidPngColor(bytes) {
+  const info = classifyImage(bytes);
+  if (!info || info.mimeType !== "image/png" || info.width !== 1 || info.height !== 1 || bytes[24] !== 8) {
+    return null;
+  }
+  const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[bytes[25]];
+  if (!channels) {
+    return null;
+  }
+  const parts = [];
+  for (let offset = 8; offset + 8 <= bytes.length; offset += 12 + bytes.readUInt32BE(offset)) {
+    const type = bytes.toString("ascii", offset + 4, offset + 8);
+    if (type === "IDAT") {
+      parts.push(bytes.subarray(offset + 8, offset + 8 + bytes.readUInt32BE(offset)));
+    }
+    if (type === "IEND") {
+      break;
+    }
+  }
+  let pixel;
+  try {
+    pixel = zlib.inflateSync(Buffer.concat(parts));
+  } catch {
+    return null;
+  }
+  if (pixel.length < 1 + channels) {
+    return null;
+  }
+  // The leading byte is the row filter, which is a no-op for a 1x1 image.
+  const value = pixel.subarray(1);
+  const gray = value[0] / 255;
+  return channels === 1 || channels === 2
+    ? [gray, gray, gray]
+    : [value[0] / 255, value[1] / 255, value[2] / 255];
+}
+
+const GLB_CHUNK_JSON = 0x4e4f534a;
+const GLB_CHUNK_BIN = 0x004e4942;
+
+function buildGlbFromDecodedMesh(mesh, image, materialName, baseColor) {
+  const positionBytes = Buffer.from(mesh.positions.buffer, mesh.positions.byteOffset, mesh.positions.byteLength);
+  const normalBytes = Buffer.from(mesh.normals.buffer, mesh.normals.byteOffset, mesh.normals.byteLength);
+  const uvBytes = Buffer.from(mesh.uv.buffer, mesh.uv.byteOffset, mesh.uv.byteLength);
+  const imageOffset = roundUp4(positionBytes.length + normalBytes.length + uvBytes.length);
+  const imageBytes = image ? image.bytes : Buffer.alloc(0);
+  const bin = Buffer.alloc(imageOffset + imageBytes.length);
+  positionBytes.copy(bin, 0);
+  normalBytes.copy(bin, positionBytes.length);
+  uvBytes.copy(bin, positionBytes.length + normalBytes.length);
+  imageBytes.copy(bin, imageOffset);
+
+  const bufferViews = [
+    { buffer: 0, byteOffset: 0, byteLength: positionBytes.length, target: 34962 },
+    { buffer: 0, byteOffset: positionBytes.length, byteLength: normalBytes.length, target: 34962 },
+    {
+      buffer: 0,
+      byteOffset: positionBytes.length + normalBytes.length,
+      byteLength: uvBytes.length,
+      target: 34962
+    }
+  ];
+  const accessors = [
+    {
+      bufferView: 0,
+      componentType: 5126,
+      count: mesh.vertexCount,
+      type: "VEC3",
+      min: mesh.min,
+      max: mesh.max
+    },
+    { bufferView: 1, componentType: 5126, count: mesh.vertexCount, type: "VEC3" },
+    { bufferView: 2, componentType: 5126, count: mesh.vertexCount, type: "VEC2" }
+  ];
+  const gltf = {
+    asset: { version: "2.0", generator: "xedra-revival asset builder" },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [{ mesh: 0, name: materialName || "Mesh" }],
+    meshes: [
+      {
+        name: materialName || "Mesh",
+        primitives: [
+          {
+            attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 },
+            material: 0
+          }
+        ]
+      }
+    ],
+    materials: [
+      {
+        name: materialName || "Mesh",
+        pbrMetallicRoughness: {
+          baseColorFactor: baseColor ? [...baseColor, 1] : [1, 1, 1, 1],
+          metallicFactor: 0,
+          roughnessFactor: 0.85
+        }
+      }
+    ],
+    buffers: [{ byteLength: bin.length }],
+    bufferViews,
+    accessors
+  };
+  if (image) {
+    bufferViews.push({ buffer: 0, byteOffset: imageOffset, byteLength: imageBytes.length });
+    gltf.images = [{ bufferView: 3, mimeType: image.mimeType }];
+    gltf.samplers = [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }];
+    gltf.textures = [{ sampler: 0, source: 0 }];
+    gltf.materials[0].pbrMetallicRoughness.baseColorTexture = { index: 0, texCoord: 0 };
+  }
+
+  const jsonBytes = Buffer.from(JSON.stringify(gltf), "utf8");
+  const jsonChunk = Buffer.concat([jsonBytes, Buffer.alloc((4 - (jsonBytes.length % 4)) % 4, 0x20)]);
+  const binChunk = Buffer.concat([bin, Buffer.alloc((4 - (bin.length % 4)) % 4, 0x00)]);
+  const glb = Buffer.alloc(12 + 8 + jsonChunk.length + 8 + binChunk.length);
+  glb.writeUInt32LE(0x46546c67, 0);
+  glb.writeUInt32LE(2, 4);
+  glb.writeUInt32LE(glb.length, 8);
+  glb.writeUInt32LE(jsonChunk.length, 12);
+  glb.writeUInt32LE(GLB_CHUNK_JSON, 16);
+  jsonChunk.copy(glb, 20);
+  const binHeader = 20 + jsonChunk.length;
+  glb.writeUInt32LE(binChunk.length, binHeader);
+  glb.writeUInt32LE(GLB_CHUNK_BIN, binHeader + 4);
+  binChunk.copy(glb, binHeader + 8);
+  return glb;
+}
+
+function roundUp4(value) {
+  return Math.ceil(value / 4) * 4;
+}
+
+app.get("/api/catalog/items/:id/model", async (request, response) => {
+  const catalogItemId = Number(request.params.id);
+  if (!Number.isInteger(catalogItemId) || catalogItemId < 1) {
+    return response.status(400).json({ error: "Invalid item ID." });
+  }
+  try {
+    const result = await pool.query(
+      `SELECT model.model_data
+       FROM catalog_item_models model
+       JOIN catalog_items item ON item.id = model.catalog_item_id
+       WHERE item.id = $1 AND item.accepted = true AND model.model_format = 'glb'`,
+      [catalogItemId]
+    );
+    if (!result.rows.length) {
+      return response.status(404).json({ error: "No model is available for this item." });
+    }
+    response.set({
+      "Content-Type": "model/gltf-binary",
+      "Content-Length": result.rows[0].model_data.length,
+      "Cache-Control": "public, max-age=3600",
+      "X-Content-Type-Options": "nosniff"
+    });
+    return response.send(result.rows[0].model_data);
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load the item model." });
+  }
+});
+
+app.get("/api/catalog/items/:id/thumbnail", async (request, response) => {
+  const catalogItemId = Number(request.params.id);
+  if (!Number.isInteger(catalogItemId) || catalogItemId < 1) {
+    return response.status(400).json({ error: "Invalid item ID." });
+  }
+  try {
+    const result = await pool.query(
+      `SELECT thumbnail.image_data, thumbnail.content_type
+       FROM catalog_item_thumbnails thumbnail
+       JOIN catalog_items item ON item.id = thumbnail.catalog_item_id
+       WHERE item.id = $1 AND item.accepted = true`,
+      [catalogItemId]
+    );
+    if (!result.rows.length) {
+      return response.status(404).json({ error: "No uploaded image is available for this item." });
+    }
+    response.set({
+      "Content-Type": result.rows[0].content_type,
+      "Content-Length": result.rows[0].image_data.length,
+      "Cache-Control": "public, max-age=3600",
+      "X-Content-Type-Options": "nosniff"
+    });
+    return response.send(result.rows[0].image_data);
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load the item image." });
+  }
+});
+
+app.put(
+  "/api/admin/catalog-items/:id/thumbnail",
+  requireAuth,
+  requireAdmin,
+  express.raw({ type: "application/octet-stream", limit: "10mb" }),
+  async (request, response) => {
+    const catalogItemId = Number(request.params.id);
+    if (!Number.isInteger(catalogItemId) || catalogItemId < 1) {
+      return response.status(400).json({ error: "Invalid item ID." });
+    }
+    const image = request.body;
+    let contentType = "";
+    if (Buffer.isBuffer(image) && image.length >= 12 && image.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+      contentType = "image/png";
+    } else if (Buffer.isBuffer(image) && image.length >= 3 && image[0] === 0xff && image[1] === 0xd8 && image[2] === 0xff) {
+      contentType = "image/jpeg";
+    } else if (Buffer.isBuffer(image) && image.length >= 12 && image.toString("ascii", 0, 4) === "RIFF" && image.toString("ascii", 8, 12) === "WEBP") {
+      contentType = "image/webp";
+    }
+    if (!contentType) {
+      return response.status(400).json({ error: "Upload a valid PNG, JPEG, or WebP image." });
+    }
+    try {
+      const item = await pool.query("SELECT id FROM catalog_items WHERE id = $1", [catalogItemId]);
+      if (!item.rows.length) {
+        return response.status(404).json({ error: "Catalog item not found." });
+      }
+      await pool.query(
+        `INSERT INTO catalog_item_thumbnails (catalog_item_id, image_data, content_type)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (catalog_item_id) DO UPDATE
+         SET image_data = EXCLUDED.image_data, content_type = EXCLUDED.content_type, created_at = now()`,
+        [catalogItemId, image, contentType]
+      );
+      const thumbnailUrl = `/api/catalog/items/${catalogItemId}/thumbnail`;
+      await pool.query("UPDATE catalog_items SET thumbnail_url = $1 WHERE id = $2", [thumbnailUrl, catalogItemId]);
+      return response.json({ ok: true, thumbnailUrl, contentType });
+    } catch (error) {
+      console.error(error);
+      return response.status(500).json({ error: "Could not save the item image." });
+    }
+  }
+);
+
+app.put(
+  "/api/admin/catalog-items/:id/model",
+  requireAuth,
+  requireAdmin,
+  express.raw({ type: "application/octet-stream", limit: "20mb" }),
+  async (request, response) => {
+    const catalogItemId = Number(request.params.id);
+    if (!Number.isInteger(catalogItemId) || catalogItemId < 1) {
+      return response.status(400).json({ error: "Invalid item ID." });
+    }
+    const model = request.body;
+    const requestedFormat = String(request.get("X-Model-Format") || "").toLowerCase();
+    const modelFormat = detectModelFormat(model);
+    if (!modelFormat) {
+      return response.status(400).json({ error: "Upload a valid .glb, .rbxm, or .rbxmx file." });
+    }
+    try {
+      const item = await pool.query("SELECT id FROM catalog_items WHERE id = $1", [catalogItemId]);
+      if (!item.rows.length) {
+        return response.status(404).json({ error: "Catalog item not found." });
+      }
+      await pool.query(
+        `INSERT INTO catalog_item_models (catalog_item_id, model_data, model_format)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (catalog_item_id) DO UPDATE
+         SET model_data = EXCLUDED.model_data, model_format = EXCLUDED.model_format, created_at = now()`,
+        [catalogItemId, model, modelFormat]
+      );
+      await pool.query("DELETE FROM catalog_item_model_assets WHERE catalog_item_id = $1", [catalogItemId]);
+
+      const isRobloxWrapper = modelFormat === "rbxm" || modelFormat === "rbxmx";
+      const references = isRobloxWrapper ? extractRbxmReferences(model) : [];
+      const meshAssetId = references.find((reference) => reference.role === "mesh")?.assetId || null;
+      let retrieval = { status: "not_applicable", assets: [] };
+      if (isRobloxWrapper) {
+        if (!references.length) {
+          retrieval = { status: "no_references_found", assets: [] };
+        } else if (!ROBLOX_API_KEY) {
+          retrieval = {
+            status: "missing_api_key",
+            message: "Set ROBLOX_API_KEY in the server environment to test authorized asset retrieval.",
+            assets: references.map(({ assetId, role }) => ({ assetId, role, ok: false, error: "Server API key is not configured." }))
+          };
+        } else {
+          const results = [];
+          for (const { assetId, role } of references) {
+            const result = await fetchAuthorizedRobloxAsset(assetId);
+            if (result.ok) {
+              await pool.query(
+                `INSERT INTO catalog_item_model_assets (catalog_item_id, asset_id, content_type, asset_data)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (catalog_item_id, asset_id) DO UPDATE
+                 SET content_type = EXCLUDED.content_type, asset_data = EXCLUDED.asset_data, fetched_at = now()`,
+                [catalogItemId, result.assetId, result.contentType, result.assetData]
+              );
+            }
+            results.push({
+              assetId: result.assetId,
+              role,
+              ok: result.ok,
+              status: result.status,
+              contentType: result.contentType,
+              bytes: result.assetData?.length,
+              error: result.error
+            });
+          }
+          const failedMesh = !meshAssetId || results.every((r) => r.assetId !== meshAssetId || !r.ok);
+          retrieval = {
+            status: failedMesh ? "mesh_unavailable"
+              : results.every((result) => result.ok) ? "all_assets_retrieved" : "some_assets_failed",
+            meshAssetId,
+            assets: results
+          };
+        }
+      }
+      return response.json({
+        ok: true,
+        modelFormat,
+        detectedFromContent: Boolean(requestedFormat && requestedFormat !== modelFormat),
+        modelUrl: isGlb ? `/api/catalog/items/${catalogItemId}/model` : null,
+        requiresConversion: isRbxm,
+        meshAssetId,
+        assetReferences: references.map((reference) => reference.assetId),
+        retrieval
+      });
+    } catch (error) {
+      console.error(error);
+      return response.status(500).json({ error: "Could not save the item model." });
+    }
+  }
+);
+
+// The link flow already stores a Roblox asset id on the item; this turns that id into a
+// real .glb by pulling the wrapper, the mesh it points at and its skin from Roblox.
+app.post("/api/admin/catalog-items/:id/build-model", requireAuth, requireAdmin, async (request, response) => {
+  const catalogItemId = Number(request.params.id);
+  if (!Number.isInteger(catalogItemId) || catalogItemId < 1) {
+    return response.status(400).json({ error: "Invalid item ID." });
+  }
+  if (!ROBLOX_API_KEY) {
+    return response.status(400).json({ error: "Set ROBLOX_API_KEY on the server to download assets from Roblox." });
+  }
+  try {
+    const itemResult = await pool.query("SELECT id, name, source_asset_id FROM catalog_items WHERE id = $1", [catalogItemId]);
+    const item = itemResult.rows[0];
+    if (!item) {
+      return response.status(404).json({ error: "Catalog item not found." });
+    }
+    const storedModel = await pool.query(
+      "SELECT model_format, model_data FROM catalog_item_models WHERE catalog_item_id = $1",
+      [catalogItemId]
+    );
+    if (storedModel.rows[0]?.model_format === "glb") {
+      return response.json({ ok: true, built: false, reason: "A ready .glb is already attached to this item." });
+    }
+    const assetId = parseAssetId(request.body && request.body.asset) || item.source_asset_id;
+    const uploadedRbxm = storedModel.rows[0]?.model_format === "rbxm" ? storedModel.rows[0].model_data : null;
+    if (!uploadedRbxm && !assetId) {
+      return response.status(400).json({ error: "This item has no Roblox asset ID to build from. Import it from a link first." });
+    }
+
+    const stored = [];
+    const keep = async (result) => {
+      if (!result.ok) {
+        return result;
+      }
+      await pool.query(
+        `INSERT INTO catalog_item_model_assets (catalog_item_id, asset_id, content_type, asset_data)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (catalog_item_id, asset_id) DO UPDATE
+         SET content_type = EXCLUDED.content_type, asset_data = EXCLUDED.asset_data, fetched_at = now()`,
+        [catalogItemId, String(result.assetId), result.contentType, result.assetData]
+      );
+      stored.push({ assetId: result.assetId, bytes: result.assetData.length, contentType: result.contentType });
+      return result;
+    };
+
+    // Prefer the .rbxm the admin attached by hand; otherwise the link's asset id is its own wrapper.
+    const wrapper = uploadedRbxm
+      ? { ok: true, assetId: String(assetId || "uploaded"), contentType: "application/octet-stream", assetData: uploadedRbxm }
+      : await keep(await fetchAuthorizedRobloxAsset(assetId));
+    if (!wrapper.ok) {
+      return response.status(502).json({
+        ok: false,
+        status: "wrapper_denied",
+        error: `Roblox would not send asset ${assetId}: ${wrapper.error}`
+      });
+    }
+
+    let meshResult = null;
+    const textureResults = [];
+    const wrapperStart = wrapper.assetData.subarray(0, 8);
+    const isRbxm = wrapperStart.equals(Buffer.from("<roblox!"));
+    const isRbxmx = wrapper.assetData.subarray(0, 5).equals(Buffer.from("<?xml"));
+    if (isRbxm || isRbxmx) {
+      const references = extractRbxmReferences(wrapper.assetData).slice(0, 6);
+      if (!references.length) {
+        return response.status(502).json({ ok: false, status: "no_references_found", error: "The Roblox file references no mesh or texture." });
+      }
+      const fetched = [];
+      for (const reference of references) {
+        const result = await keep(await fetchAuthorizedRobloxAsset(reference.assetId));
+        fetched.push({ ...result, role: reference.role });
+      }
+      const decodes = (result) => result.ok && decodeLegacyRobloxMesh(result.assetData) !== null;
+      meshResult =
+        fetched.find((result) => result.role === "mesh" && decodes(result)) ||
+        fetched.find((result) => result.role === "unknown" && decodes(result)) ||
+        fetched.find(decodes) ||
+        null;
+      textureResults.push(
+        ...fetched.filter((result) => result.ok && result !== meshResult && classifyImage(result.assetData))
+      );
+      if (!meshResult) {
+        const refused = fetched.filter((result) => !result.ok).map((result) => `${result.assetId}: ${result.error}`);
+        return response.status(502).json({
+          ok: false,
+          status: "mesh_unavailable",
+          error: refused.length
+            ? `Roblox would not send the 3D shape. ${refused.join(" | ")}`
+            : "None of the referenced assets could be read as a Roblox mesh.",
+          references: fetched.map((result) => ({ assetId: result.assetId, role: result.role, ok: result.ok, error: result.error }))
+        });
+      }
+    } else if (decodeLegacyRobloxMesh(wrapper.assetData)) {
+      meshResult = wrapper;
+    } else {
+      const head = wrapper.assetData.toString("latin1", 0, 24).replace(/[^\x20-\x7e]/g, ".");
+      return response.status(502).json({
+        ok: false,
+        status: "unsupported_mesh_format",
+        error: `Roblox sent asset ${assetId} in a format this builder cannot read yet. File starts with: ${head}`
+      });
+    }
+
+    const mesh = decodeLegacyRobloxMesh(meshResult.assetData);
+    // A real skin wins; otherwise Roblox's 1x1 PNG is the flat colour this item is made of.
+    const textureCandidate = textureResults.find((result) => {
+      const info = classifyImage(result.assetData);
+      return info && (info.width === 0 || (info.width >= 8 && info.height >= 8));
+    });
+    const textureInfo = textureCandidate ? classifyImage(textureCandidate.assetData) : null;
+    const solidColorSource = textureCandidate
+      ? null
+      : textureResults.find((result) => readSolidPngColor(result.assetData) !== null);
+    const rawColor = solidColorSource ? readSolidPngColor(solidColorSource.assetData) : null;
+    // A pixel that reads as near-black (all channels < 0.25) is the item's black, not a grey —
+    // Roblox compresses flat-colour textures to a single pixel and the value drifts slightly.
+    const solidColor = rawColor && rawColor.every((channel) => channel < 0.25)
+      ? [0.08, 0.08, 0.08]
+      : rawColor;
+    const glb = buildGlbFromDecodedMesh(mesh, textureCandidate
+      ? { bytes: textureCandidate.assetData, mimeType: textureInfo.mimeType }
+      : null, item.name, solidColor);
+
+    await pool.query(
+      `INSERT INTO catalog_item_models (catalog_item_id, model_data, model_format)
+       VALUES ($1, $2, 'glb')
+       ON CONFLICT (catalog_item_id) DO UPDATE
+       SET model_data = EXCLUDED.model_data, model_format = 'glb', created_at = now()`,
+      [catalogItemId, glb]
+    );
+    return response.json({
+      ok: true,
+      built: true,
+      triangles: mesh.faceCount,
+      vertices: mesh.vertexCount,
+      meshAssetId: String(meshResult.assetId),
+      textureAssetId: textureCandidate ? String(textureCandidate.assetId) : null,
+      solidColor: solidColor ? solidColor.map((channel) => Math.round(channel * 255)) : null,
+      textureNote: textureCandidate || solidColor
+        ? null
+        : (textureResults.length
+          ? "Roblox sent no usable image or colour for this item, so the model is white."
+          : "Roblox sent no image for this item, so the model is white."),
+      modelUrl: `/api/catalog/items/${catalogItemId}/model`,
+      bytes: glb.length,
+      stored
+    });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not build the model from Roblox." });
+  }
+});
+
 app.post("/api/admin/import", requireAuth, requireAdmin, async (request, response) => {
   const assetId = parseAssetId(request.body && request.body.asset);
   if (!assetId) {
@@ -1077,6 +1795,76 @@ app.post("/api/admin/update-asset", requireAuth, requireAdmin, async (request, r
   } catch (error) {
     console.error(error);
     return response.status(500).json({ error: "Could not create the catalog item." });
+  }
+});
+
+app.post("/api/admin/custom-item", requireAuth, requireAdmin, async (request, response) => {
+  const body = request.body || {};
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const description = typeof body.description === "string" ? body.description.trim() : "";
+  const category = String(body.category || "");
+  const assetType = Number(body.assetType);
+  const price = Number(body.price);
+  const rap = Number(body.rap);
+  const validAssetTypes = new Set([8, 11, 12, 17, 18, 19, 41, 42, 43, 44, 45, 46, 47]);
+
+  if (!name || name.length > 120) {
+    return response.status(400).json({ error: "Enter a name between 1 and 120 characters." });
+  }
+  if (description.length > 2000) {
+    return response.status(400).json({ error: "Description must be 2000 characters or fewer." });
+  }
+  if (!ASSET_CATEGORY_VALUES.has(category)) {
+    return response.status(400).json({ error: "Choose Unlimited, Limited, or Limited Unique." });
+  }
+  if (!validAssetTypes.has(assetType)) {
+    return response.status(400).json({ error: "Choose a valid item type." });
+  }
+  if (!Number.isInteger(price) || price < 0) {
+    return response.status(400).json({ error: "Price must be a whole number of 0 or more." });
+  }
+  if (!Number.isInteger(rap) || rap < 0) {
+    return response.status(400).json({ error: "RAP must be a whole number of 0 or more." });
+  }
+
+  let stock = null;
+  if (category === "limited") {
+    stock = Number(body.stock);
+    if (!Number.isInteger(stock) || stock < 1) {
+      return response.status(400).json({ error: "Enter a stock amount for Limited items." });
+    }
+  } else if (category === "limited_unique") {
+    stock = 1;
+  }
+
+  const catalogCategory = [11, 12].includes(assetType)
+    ? "clothing"
+    : assetType === 19
+      ? "gear"
+      : [17, 18].includes(assetType)
+        ? "body_parts"
+        : "accessories";
+  const isLimited = category !== "not_limited";
+  const isLimitedUnique = category === "limited_unique";
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO catalog_items
+         (name, description, category, creator_name, creator_type, currency, price, rap, stock,
+          is_limited, is_limited_unique, is_new, is_featured, is_available,
+          thumbnail_url, source_asset_id, remote_thumbnail_url, accepted, asset_type)
+       VALUES ($1, $2, $3, $4, 'user', 'robux', $5, $6, $7, $8, $9, true, false, $10, '', NULL, '', true, $11)
+       RETURNING *`,
+      [name, description, catalogCategory, request.user.username, price, rap, stock,
+        isLimited, isLimitedUnique, stock === null || stock > 0, assetType]
+    );
+    const item = result.rows[0];
+    return response.status(201).json({
+      item: { ...normalizeCatalogItem(item), description: item.description, rap: item.rap, stock: item.stock }
+    });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not create the custom item." });
   }
 });
 
@@ -1381,7 +2169,7 @@ app.get("/api/catalog/:id", requireAuth, async (request, response) => {
 
 const UPLOAD_KINDS = {
   place: [".rbxl"],
-  model: [".rbxm"],
+  model: [".rbxm", ".rbxmx"],
   audio: [".ogg", ".mp3"]
 };
 const UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
@@ -1813,9 +2601,12 @@ app.get("/api/avatar/owned", requireAuth, async (request, response) => {
               ci.name, ci.category, ci.creator_name, ci.creator_type,
               ci.currency, ci.price, ci.rap, ci.stock,
               ci.is_limited, ci.is_limited_unique, ci.is_available,
-              ci.thumbnail_url, ci.source_asset_id, ci.asset_type
+              ci.thumbnail_url, ci.source_asset_id, ci.asset_type, model.model_format,
+                  CASE WHEN model.catalog_item_id IS NULL OR model.model_format <> 'glb' THEN ''
+             ELSE '/api/catalog/items/' || ci.id || '/model' END AS model_url
        FROM item_ownership io
        JOIN catalog_items ci ON ci.id = io.catalog_item_id
+             LEFT JOIN catalog_item_models model ON model.catalog_item_id = ci.id
        WHERE io.user_id = $1 AND ci.accepted = true
        ORDER BY io.created_at DESC`,
       [request.user.id]
@@ -1831,9 +2622,12 @@ app.get("/api/avatar/equipped", requireAuth, async (request, response) => {
   try {
     const result = await pool.query(
       `SELECT ei.catalog_item_id,
-              ci.name, ci.category, ci.asset_type, ci.thumbnail_url
+              ci.name, ci.category, ci.asset_type, ci.thumbnail_url, model.model_format,
+                  CASE WHEN model.catalog_item_id IS NULL OR model.model_format <> 'glb' THEN ''
+             ELSE '/api/catalog/items/' || ci.id || '/model' END AS model_url
        FROM equipped_items ei
        JOIN catalog_items ci ON ci.id = ei.catalog_item_id
+             LEFT JOIN catalog_item_models model ON model.catalog_item_id = ci.id
        WHERE ei.user_id = $1 AND ci.accepted = true
        ORDER BY ei.created_at DESC`,
       [request.user.id]
