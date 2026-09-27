@@ -1417,6 +1417,11 @@ const adminDeleteStatus = document.querySelector("#admin-delete-status");
 const adminCodesList = document.querySelector("#admin-codes-list");
 const adminPendingList = document.querySelector("#admin-pending-list");
 const adminAcceptStatus = document.querySelector("#admin-accept-status");
+const adminRobuxUsername = document.querySelector("#admin-robux-username");
+const adminRobuxAmount = document.querySelector("#admin-robux-amount");
+const adminRobuxButton = document.querySelector("#admin-robux-button");
+const adminRobuxStatus = document.querySelector("#admin-robux-status");
+const adminRobuxHistoryList = document.querySelector("#admin-robux-history-list");
 
 const itemPage = document.querySelector("#item-page");
 const itemDetail = document.querySelector("#item-detail");
@@ -1435,6 +1440,7 @@ function showAdminPage() {
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadAdminCodes();
   void loadPendingAssets();
+  void loadRobuxHistory();
 }
 
 adminNavButton.addEventListener("click", showAdminPage);
@@ -1735,6 +1741,56 @@ async function removeItemByCode(refund) {
 
 adminDeleteButton.addEventListener("click", () => void removeItemByCode(false));
 adminRefundButton.addEventListener("click", () => void removeItemByCode(true));
+
+adminRobuxButton.addEventListener("click", async () => {
+  const username = adminRobuxUsername.value.trim();
+  const amount = Number(adminRobuxAmount.value);
+  if (!username) {
+    setStatus(adminRobuxStatus, "Enter a username.", true);
+    return;
+  }
+  if (!Number.isInteger(amount) || amount <= 0) {
+    setStatus(adminRobuxStatus, "Enter a valid amount.", true);
+    return;
+  }
+  adminRobuxButton.disabled = true;
+  setStatus(adminRobuxStatus, "Giving Robux...");
+  const { ok, result } = await apiCall("POST", "/api/admin/give-robux", { username, amount });
+  adminRobuxButton.disabled = false;
+  if (!ok) {
+    setStatus(adminRobuxStatus, result.error || "Could not give Robux.", true);
+    return;
+  }
+  setStatus(adminRobuxStatus, `Gave ${amount} Robux to ${result.username}. Balance: ${result.newRobux}.`);
+  adminRobuxUsername.value = "";
+  adminRobuxAmount.value = "";
+  void loadRobuxHistory();
+});
+
+async function loadRobuxHistory() {
+  const { ok, result } = await apiCall("GET", "/api/admin/robux-history");
+  adminRobuxHistoryList.textContent = "";
+  if (!ok) {
+    const line = document.createElement("li");
+    line.textContent = result.error || "Could not load history.";
+    adminRobuxHistoryList.appendChild(line);
+    return;
+  }
+  const transactions = result.transactions || [];
+  if (!transactions.length) {
+    const line = document.createElement("li");
+    line.className = "empty";
+    line.textContent = "No Robux transactions yet.";
+    adminRobuxHistoryList.appendChild(line);
+    return;
+  }
+  transactions.forEach((tx) => {
+    const line = document.createElement("li");
+    const when = new Date(tx.created_at).toLocaleString();
+    line.innerHTML = `<strong>${tx.admin_username}</strong> gave <strong>${tx.amount}</strong> Robux to <strong>${tx.target_username}</strong> (${tx.previous_balance} → ${tx.new_balance}) <span class="code-state">${when}</span>`;
+    adminRobuxHistoryList.appendChild(line);
+  });
+}
 
 itemBackButton.addEventListener("click", showCatalogPage);
 
@@ -2929,7 +2985,7 @@ function addEquippedModel(item) {
   const thumbnailUrl = item.thumbnailUrl;
   let mesh;
 
-  console.log("Equipping item:", { id: item.id, name: item.name, assetType, category, thumbnailUrl });
+  console.log("Equipping item:", { id: item.id, name: item.name, assetType, category, modelUrl, modelFormat, thumbnailUrl });
 
   if (!modelUrl && modelFormat === "rbxm") {
     console.warn("rbxm model needs GLB conversion, rendering placeholder:", item.name);
@@ -2945,8 +3001,9 @@ function addEquippedModel(item) {
     mesh.name = `equip-${item.id}`;
     equippedGroup.add(mesh);
     const loader = new GLTFLoader();
+    const cacheBustedUrl = modelUrl.includes("?") ? `${modelUrl}&t=${Date.now()}` : `${modelUrl}?t=${Date.now()}`;
     loader.load(
-      modelUrl,
+      cacheBustedUrl,
       (gltf) => {
         if (mesh.parent !== equippedGroup) {
           disposeEquippedObject(gltf.scene);
@@ -2976,8 +3033,16 @@ function addEquippedModel(item) {
             const headCenter = avatarHead.bounds.getCenter(new THREE.Vector3());
             model.position.x += headCenter.x - modelCenter.x;
             if (Number(assetType) === 48) {
-              // Hat with ears (headphones) — centered on the head, pushed slightly down.
-              model.position.y += headCenter.y - modelCenter.y - 0.5;
+              // Hat with ears — push down significantly to sit on sides of head.
+              model.position.y += headCenter.y - modelCenter.y - 1.5;
+              console.log("TYPE 48 GLB placement debug:", {
+                headCenter: { x: headCenter.x, y: headCenter.y, z: headCenter.z },
+                modelCenter: { x: modelCenter.x, y: modelCenter.y, z: modelCenter.z },
+                modelBoundsMin: { x: modelBounds.min.x, y: modelBounds.min.y, z: modelBounds.min.z },
+                modelBoundsMax: { x: modelBounds.max.x, y: modelBounds.max.y, z: modelBounds.max.z },
+                hatScale,
+                finalPosition: { x: model.position.x, y: model.position.y, z: model.position.z }
+              });
             } else {
               model.position.y += avatarHead.bounds.max.y - modelBounds.min.y - 0.35;
             }
@@ -3096,10 +3161,12 @@ function addEquippedModel(item) {
     mesh.position.set(0, avatarHead ? avatarHead.bounds.max.y + 0.15 : 2.8, 0);
   } else if (assetType === 48) {
     // Hat with ears - similar to hat but slightly wider to suggest ear shapes.
+    console.log("TYPE 48 PROCEDURAL FALLBACK PATH - no modelUrl!");
     const geo = new THREE.BoxGeometry(1.0 * scale, 0.5 * scale, 0.8 * scale);
     mesh = new THREE.Mesh(geo, material);
     const avatarHead = findAvatarHead();
     mesh.position.set(0, avatarHead ? avatarHead.bounds.max.y + 0.15 : 2.8, 0);
+    console.log("TYPE 48 procedural position:", { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z, avatarHeadFound: !!avatarHead });
   } else if (assetType === 42) {
     // FaceAccessory - front of face (glasses, mask)
     const geo = new THREE.PlaneGeometry(0.7 * scale, 0.35 * scale);
