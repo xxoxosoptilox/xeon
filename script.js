@@ -2637,8 +2637,17 @@ function initAvatar3D(modelUrl = null) {
         model.scale.set(1.5, 1.5, 1.5);
         model.position.y = -1;
         avatarCharacter.add(model);
-        for (const item of equippedItems.values()) {
-          if (!equippedGroup.getObjectByName(`equip-${item.id}`)) {
+        const equippedGroup = avatarScene.getObjectByName("equipped-items");
+        if (equippedGroup) {
+          const childrenToRemove = [];
+          equippedGroup.children.forEach((child) => {
+            childrenToRemove.push(child);
+          });
+          childrenToRemove.forEach((child) => {
+            equippedGroup.remove(child);
+            disposeEquippedObject(child);
+          });
+          for (const item of equippedItems.values()) {
             addEquippedModel(item);
           }
         }
@@ -2689,6 +2698,21 @@ function initAvatar3D(modelUrl = null) {
     const rightLeg = new THREE.Mesh(legGeometry, skinMaterial);
     rightLeg.position.set(0.25, -0.8, 0);
     avatarCharacter.add(rightLeg);
+
+    const equippedGroup = avatarScene.getObjectByName("equipped-items");
+    if (equippedGroup) {
+      const childrenToRemove = [];
+      equippedGroup.children.forEach((child) => {
+        childrenToRemove.push(child);
+      });
+      childrenToRemove.forEach((child) => {
+        equippedGroup.remove(child);
+        disposeEquippedObject(child);
+      });
+      for (const item of equippedItems.values()) {
+        addEquippedModel(item);
+      }
+    }
   }
 
   function animate() {
