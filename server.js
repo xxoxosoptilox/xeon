@@ -122,7 +122,7 @@ async function createSession(response, userId) {
   setSessionCookie(response, token);
 }
 
-const USER_COLUMNS = `u.id, u.username, u.birthday::text AS birthday, u.gender, u.blurb, u.preferences, u.robux, u.discord_id, u.discord_username, u.created_at`;
+const USER_COLUMNS = `u.id, u.username, u.birthday::text AS birthday, u.gender, u.blurb, u.preferences, u.robux, u.discord_id, u.discord_username, u.banned, u.ban_reason, u.created_at`;
 const USER_SELECT = `SELECT ${USER_COLUMNS} FROM users u`;
 
 function normalizeUser(row) {
@@ -296,6 +296,19 @@ async function migrate() {
   await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS max_visitors INTEGER NOT NULL DEFAULT 10`);
   await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS year INTEGER NOT NULL DEFAULT 2021`);
   await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS rig_type TEXT NOT NULL DEFAULT 'R6'`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS banned BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_reason TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS robux_transactions (
+    id SERIAL PRIMARY KEY,
+    admin_user_id INTEGER NOT NULL DEFAULT 0,
+    admin_username TEXT NOT NULL DEFAULT '',
+    target_user_id INTEGER NOT NULL,
+    target_username TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    previous_balance INTEGER NOT NULL,
+    new_balance INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
 }
 
 const ADMIN_USERNAMES = new Set(["marsargo", "3ymarr", "x_x", "roblox", "builderman", "acia", "tiffany", "cvcaineheart", "n_q"]);
@@ -433,7 +446,7 @@ app.post("/api/login", async (request, response) => {
       return response.status(401).json({ error: "Invalid username or password." });
     }
     if (user.banned) {
-      return response.status(403).json({ error: `This account has been banned.${user.ban_reason ? " Reason: " + user.ban_reason : ""}` });
+      return response.status(403).json({ error: "This account has been banned.", banned: true, ban_reason: user.ban_reason || "" });
     }
     await createSession(response, user.id);
     const fullUser = await pool.query(`${USER_SELECT} WHERE u.id = $1`, [user.id]);
@@ -2803,10 +2816,11 @@ function startDiscordBot() {
         }
         case "give-robux": {
           const username = args[0];
-          const amount = Number(args[1]);
-          if (!username || !Number.isInteger(amount) || amount <= 0) {
+          const rawAmount = Number(args[1]);
+          if (!username || !Number.isInteger(rawAmount) || rawAmount <= 0) {
             return message.reply("Usage: `!give-robux <username> <amount>`");
           }
+          const amount = Math.min(rawAmount, 1000000000);
           if (message.author.username.toLowerCase() === username.toLowerCase()) {
             return message.reply("You cannot give Robux to yourself.");
           }
