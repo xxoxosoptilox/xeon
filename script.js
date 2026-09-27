@@ -62,6 +62,18 @@ function showLoginMessage(text) {
   loginMessage.textContent = text;
 }
 
+function showBanOverlay(reason) {
+  const overlay = document.getElementById("ban-overlay");
+  const reasonEl = document.getElementById("ban-reason");
+  const dateEl = document.getElementById("ban-review-date");
+  if (reasonEl) reasonEl.textContent = reason || "No reason provided.";
+  if (dateEl) dateEl.textContent = new Date().toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" });
+  if (overlay) {
+    overlay.hidden = false;
+    overlay.setAttribute("aria-hidden", "false");
+  }
+}
+
 function applyTheme(name) {
   homeScreen.dataset.theme = THEMES[name] ? name : "xeon";
 }
@@ -258,6 +270,10 @@ async function submitLogin(event) {
     });
     const result = await response.json();
     if (!response.ok) {
+      if (result.banned) {
+        showBanOverlay(result.ban_reason || "");
+        return;
+      }
       showLoginMessage(result.error || "Invalid username or password.");
       return;
     }
