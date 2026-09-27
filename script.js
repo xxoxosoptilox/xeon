@@ -495,6 +495,10 @@ async function apiCall(method, path, body) {
       body: body ? JSON.stringify(body) : undefined
     });
     const result = await response.json().catch(() => ({}));
+    if (response.status === 403 && result.banned) {
+      showBanOverlay(result.ban_reason || "");
+      return { ok: false, result };
+    }
     return { ok: response.ok, result };
   } catch {
     return { ok: false, result: { error: "The server is not running. Start it with: node server.js" } };
@@ -510,6 +514,10 @@ async function apiCallRaw(method, path, buffer, contentType) {
       body: buffer
     });
     const result = await response.json().catch(() => ({}));
+    if (response.status === 403 && result.banned) {
+      showBanOverlay(result.ban_reason || "");
+      return { ok: false, result };
+    }
     return { ok: response.ok, result };
   } catch {
     return { ok: false, result: { error: "The server is not running. Start it with: node server.js" } };
