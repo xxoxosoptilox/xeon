@@ -276,6 +276,33 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 .admin-panel-button { justify-content: center; margin-top: 8px; border-radius: 6px !important; color: #fff !important; background: #b3261e !important; font-weight: 800; }
 [hidden] { display: none !important; }
 .admin-panel-button:hover { background: #d1382e !important; }
+.ban-manager-button { justify-content: center; margin-top: 8px; border-radius: 6px !important; color: #fff !important; background: #7b2d8e !important; font-weight: 800; }
+.ban-manager-button:hover { background: #9340a8 !important; }
+.user-search-button { justify-content: center; margin-top: 8px; border-radius: 6px !important; color: #fff !important; background: #2d5a8e !important; font-weight: 800; }
+.user-search-button:hover { background: #4070a8 !important; }
+.server-stats-button { justify-content: center; margin-top: 8px; border-radius: 6px !important; color: #fff !important; background: #2d8e5a !important; font-weight: 800; }
+.server-stats-button:hover { background: #40a870 !important; }
+.announcements-button { justify-content: center; margin-top: 8px; border-radius: 6px !important; color: #fff !important; background: #8e6d2d !important; font-weight: 800; }
+.announcements-button:hover { background: #a88540 !important; }
+.give-items-button { justify-content: center; margin-top: 8px; border-radius: 6px !important; color: #fff !important; background: #2d8e8e !important; font-weight: 800; }
+.give-items-button:hover { background: #40a8a8 !important; }
+.reset-password-button { justify-content: center; margin-top: 8px; border-radius: 6px !important; color: #fff !important; background: #8e2d6d !important; font-weight: 800; }
+.reset-password-button:hover { background: #a84085 !important; }
+.change-username-button { justify-content: center; margin-top: 8px; border-radius: 6px !important; color: #fff !important; background: #6d2d8e !important; font-weight: 800; }
+.change-username-button:hover { background: #8540a8 !important; }
+.audit-log-button { justify-content: center; margin-top: 8px; border-radius: 6px !important; color: #fff !important; background: #4a4a4a !important; font-weight: 800; }
+.audit-log-button:hover { background: #666666 !important; }
+.mass-message-button { justify-content: center; margin-top: 8px; border-radius: 6px !important; color: #fff !important; background: #8e5a2d !important; font-weight: 800; }
+.mass-message-button:hover { background: #a87040 !important; }
+.maintenance-button { justify-content: center; margin-top: 8px; border-radius: 6px !important; color: #fff !important; background: #c94a4a !important; font-weight: 800; }
+.maintenance-button:hover { background: #d96060 !important; }
+.user-roles-button { justify-content: center; margin-top: 8px; border-radius: 6px !important; color: #fff !important; background: #2d4a8e !important; font-weight: 800; }
+.user-roles-button:hover { background: #4060a8 !important; }
+.reports-button { justify-content: center; margin-top: 8px; border-radius: 6px !important; color: #fff !important; background: #8e2d2d !important; font-weight: 800; }
+.reports-button:hover { background: #a84040 !important; }
+.ban-manager-list { list-style: none; padding: 0; margin: 0; }
+.ban-manager-list li { padding: 10px; margin-bottom: 8px; border: 1px solid var(--hs-border); border-radius: 6px; background: var(--field); font-size: 13px; }
+.ban-manager-list li.banned { border-color: #b3261e; background: #2a1a1a; }
 .admin-note { margin: 4px 0 16px; color: var(--hs-muted); font-size: 12px; }
 .admin-card { margin-bottom: 20px; padding: 18px; border: 1px solid var(--hs-border); border-radius: 8px; background: var(--hs-panel); }
 .admin-card h3 { margin: 0 0 12px; font-size: 16px; }
@@ -539,4 +566,137 @@ select { appearance: none; padding: 5px 28px 5px 8px; background-image: linear-g
 
 .ban-report-button:hover {
   background: #4a4a4a;
+}
+
+.discord-link-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+}
+
+.discord-link-card {
+  background: #1a1a1a;
+  border-radius: 16px;
+  padding: 40px 32px 32px;
+  max-width: 440px;
+  width: 100%;
+  color: #fff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  text-align: center;
+  position: relative;
+}
+
+.discord-link-close {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.discord-link-close svg {
+  width: 24px;
+  height: 24px;
+}
+
+.discord-link-card h2 {
+  margin: 0 0 24px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.discord-link-shield {
+  margin: 0 auto 24px;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.discord-link-shield svg {
+  width: 80px;
+  height: 80px;
+  color: #fff;
+}
+
+.discord-link-instruction {
+  font-size: 15px;
+  line-height: 1.5;
+  margin-bottom: 24px;
+  color: #ccc;
+}
+
+.discord-link-input {
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 18px;
+  background: #2a2a2a;
+  border: 2px solid #3a3a3a;
+  border-radius: 10px;
+  color: #fff;
+  text-align: center;
+  letter-spacing: 4px;
+  margin-bottom: 20px;
+  box-sizing: border-box;
+}
+
+.discord-link-input:focus {
+  outline: none;
+  border-color: #5865F2;
+}
+
+.discord-link-verify {
+  width: 100%;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  background: #5865F2;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-bottom: 16px;
+}
+
+.discord-link-verify:hover {
+  background: #4752C4;
+}
+
+.discord-link-verify:disabled {
+  background: #3a3a3a;
+  cursor: not-allowed;
+}
+
+.discord-link-status {
+  font-size: 14px;
+  margin-bottom: 16px;
+  min-height: 20px;
+}
+
+.discord-link-status.error {
+  color: #e74c3c;
+}
+
+.discord-link-status.success {
+  color: #2ecc71;
+}
+
+.discord-link-warning {
+  font-size: 12px;
+  color: #888;
+  line-height: 1.5;
+  margin: 0;
 }
