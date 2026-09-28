@@ -122,7 +122,7 @@ async function createSession(response, userId) {
   setSessionCookie(response, token);
 }
 
-const USER_COLUMNS = `u.id, u.username, u.birthday::text AS birthday, u.gender, u.blurb, u.preferences, u.robux, u.discord_id, u.discord_username, u.banned, u.ban_reason, u.created_at`;
+const USER_COLUMNS = `u.id, u.username, u.birthday::text AS birthday, u.gender, u.blurb, u.preferences, u.robux, u.discord_id, u.discord_username, u.banned, u.ban_reason, u.ban_expires_at, u.ban_count, u.created_at`;
 const USER_SELECT = `SELECT ${USER_COLUMNS} FROM users u`;
 
 function normalizeUser(row) {
@@ -140,6 +140,8 @@ function normalizeUser(row) {
     discordUsername: row.discord_username || "",
     banned: row.banned || false,
     banReason: row.ban_reason || "",
+    banExpiresAt: row.ban_expires_at,
+    banCount: row.ban_count || 0,
     createdAt: row.created_at
   };
 }
@@ -159,7 +161,14 @@ async function requireAuth(request, response, next) {
       return response.status(401).json({ error: "Your session expired. Please log in again." });
     }
     if (user.banned) {
-      return response.status(403).json({ error: "This account has been banned.", banned: true, ban_reason: user.ban_reason || "" });
+      if (user.ban_expires_at && new Date(user.ban_expires_at) < new Date()) {
+        await pool.query("UPDATE users SET banned = false, ban_reason = '', ban_expires_at = NULL WHERE id = $1", [user.id]);
+        user.banned = false;
+        user.ban_reason = "";
+        user.ban_expires_at = null;
+      } else {
+        return response.status(403).json({ error: "This account has been banned.", banned: true, ban_reason: user.ban_reason || "", ban_expires_at: user.ban_expires_at });
+      }
     }
     request.sessionToken = token;
     request.user = normalizeUser(user);
@@ -303,6 +312,35 @@ async function migrate() {
   await pool.query(`ALTER TABLE creations ADD COLUMN IF NOT EXISTS rig_type TEXT NOT NULL DEFAULT 'R6'`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS banned BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_reason TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_expires_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_count INTEGER NOT NULL DEFAULT 0`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS announcements (
+    id SERIAL PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL DEFAULT '',
+    author_username TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS audit_log (
+    id SERIAL PRIMARY KEY,
+    action TEXT NOT NULL DEFAULT '',
+    admin_username TEXT NOT NULL DEFAULT '',
+    details TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+  )`);
+  await pool.query(`INSERT INTO settings (key, value) VALUES ('maintenance_mode', 'false') ON CONFLICT (key) DO NOTHING`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS reports (
+    id SERIAL PRIMARY KEY,
+    username TEXT NOT NULL DEFAULT '',
+    subject TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
   await pool.query(`CREATE TABLE IF NOT EXISTS robux_transactions (
     id SERIAL PRIMARY KEY,
     admin_user_id INTEGER NOT NULL DEFAULT 0,
@@ -314,6 +352,17 @@ async function migrate() {
     new_balance INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS discord_link_codes (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    discord_id TEXT NOT NULL DEFAULT '',
+    discord_username TEXT NOT NULL DEFAULT '',
+    code TEXT NOT NULL,
+    used BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT now() + interval '10 minutes'
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS discord_link_codes_code_idx ON discord_link_codes (code)`);
 }
 
 const ADMIN_USERNAMES = new Set(["marsargo", "3ymarr", "x_x", "roblox", "builderman", "acia", "tiffany", "cvcaineheart", "n_q"]);
@@ -451,7 +500,14 @@ app.post("/api/login", async (request, response) => {
       return response.status(401).json({ error: "Invalid username or password." });
     }
     if (user.banned) {
-      return response.status(403).json({ error: "This account has been banned.", banned: true, ban_reason: user.ban_reason || "" });
+      if (user.ban_expires_at && new Date(user.ban_expires_at) < new Date()) {
+        await pool.query("UPDATE users SET banned = false, ban_reason = '', ban_expires_at = NULL WHERE id = $1", [user.id]);
+        user.banned = false;
+        user.ban_reason = "";
+        user.ban_expires_at = null;
+      } else {
+        return response.status(403).json({ error: "This account has been banned.", banned: true, ban_reason: user.ban_reason || "", ban_expires_at: user.ban_expires_at });
+      }
     }
     await createSession(response, user.id);
     const fullUser = await pool.query(`${USER_SELECT} WHERE u.id = $1`, [user.id]);
@@ -1962,6 +2018,34 @@ app.post("/api/discord/unlink", requireAuth, async (request, response) => {
   }
 });
 
+app.post("/api/discord/verify-link", requireAuth, async (request, response) => {
+  const code = String(request.body.code || "").trim();
+  if (!code) {
+    return response.status(400).json({ error: "Verification code is required." });
+  }
+  try {
+    const result = await pool.query(
+      "SELECT id, user_id, discord_id, discord_username, used, expires_at FROM discord_link_codes WHERE code = $1 AND user_id = $2 AND used = false AND expires_at > now() ORDER BY created_at DESC LIMIT 1",
+      [code, request.user.id]
+    );
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "Invalid or expired code. Make sure you typed it correctly and it hasn't expired (10 minutes)." });
+    }
+    const linkRecord = result.rows[0];
+    await pool.query("UPDATE users SET discord_id = $1, discord_username = $2 WHERE id = $3", [
+      linkRecord.discord_id,
+      linkRecord.discord_username,
+      request.user.id
+    ]);
+    await pool.query("UPDATE discord_link_codes SET used = true WHERE id = $1", [linkRecord.id]);
+    console.log("Discord linked via code for user", request.user.id, "discord:", linkRecord.discord_id);
+    return response.json({ ok: true, discordUsername: linkRecord.discord_username });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not verify code." });
+  }
+});
+
 app.post("/api/admin/delete-item", requireAuth, requireAdmin, async (request, response) => {
   const code = Number((request.body || {}).code);
   if (!Number.isInteger(code) || code < 1 || code > 2147483647) {
@@ -2179,6 +2263,345 @@ app.get("/api/admin/robux-history", requireAuth, requireAdmin, async (request, r
   } catch (error) {
     console.error(error);
     return response.status(500).json({ error: "Could not load robux history." });
+  }
+});
+
+function requireBanManager(request, response, next) {
+  if (request.user.username.toLowerCase() !== "marsargo") {
+    return response.status(403).json({ error: "Access denied." });
+  }
+  return next();
+}
+
+app.get("/api/ban-manager/users", requireAuth, requireBanManager, async (request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, username, banned, ban_reason, ban_expires_at, ban_count FROM users WHERE username != 'marsargo' ORDER BY username`
+    );
+    return response.json({ ok: true, users: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load users." });
+  }
+});
+
+app.post("/api/ban-manager/ban", requireAuth, requireBanManager, async (request, response) => {
+  const { userId, reason, durationHours } = request.body || {};
+  if (!userId || !reason || !durationHours) {
+    return response.status(400).json({ error: "User, reason, and duration are required." });
+  }
+  const hours = Number(durationHours);
+  if (!Number.isInteger(hours) || hours <= 0) {
+    return response.status(400).json({ error: "Duration must be a positive number of hours." });
+  }
+  try {
+    const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
+    const result = await pool.query(
+      `UPDATE users SET banned = true, ban_reason = $1, ban_expires_at = $2, ban_count = ban_count + 1 WHERE id = $3 RETURNING username, ban_count`,
+      [reason, expiresAt, userId]
+    );
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    return response.json({ ok: true, username: result.rows[0].username, banCount: result.rows[0].ban_count, expiresAt });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not ban user." });
+  }
+});
+
+app.post("/api/ban-manager/unban", requireAuth, requireBanManager, async (request, response) => {
+  const { userId } = request.body || {};
+  if (!userId) {
+    return response.status(400).json({ error: "User ID is required." });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE users SET banned = false, ban_reason = '', ban_expires_at = NULL WHERE id = $1 RETURNING username`,
+      [userId]
+    );
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    return response.json({ ok: true, username: result.rows[0].username });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not unban user." });
+  }
+});
+
+app.get("/api/admin/user-search", requireAuth, requireBanManager, async (request, response) => {
+  const { username } = request.query || {};
+  if (!username || typeof username !== "string") {
+    return response.status(400).json({ error: "Username is required." });
+  }
+  try {
+    const result = await pool.query(
+      `SELECT id, username, birthday, gender, blurb, robux, discord_username, banned, ban_reason, ban_expires_at, ban_count, created_at FROM users WHERE LOWER(username) = LOWER($1)`,
+      [username.trim()]
+    );
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    return response.json({ ok: true, user: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not search user." });
+  }
+});
+
+app.get("/api/admin/server-stats", requireAuth, requireBanManager, async (request, response) => {
+  try {
+    const userCount = await pool.query("SELECT COUNT(*) FROM users");
+    const bannedCount = await pool.query("SELECT COUNT(*) FROM users WHERE banned = true");
+    const sessionCount = await pool.query("SELECT COUNT(*) FROM sessions");
+    const itemCount = await pool.query("SELECT COUNT(*) FROM catalog_items");
+    const creationCount = await pool.query("SELECT COUNT(*) FROM creations");
+    return response.json({
+      ok: true,
+      stats: {
+        totalUsers: Number(userCount.rows[0].count),
+        bannedUsers: Number(bannedCount.rows[0].count),
+        activeSessions: Number(sessionCount.rows[0].count),
+        catalogItems: Number(itemCount.rows[0].count),
+        creations: Number(creationCount.rows[0].count)
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load server stats." });
+  }
+});
+
+app.get("/api/admin/announcements", requireAuth, requireBanManager, async (request, response) => {
+  try {
+    const result = await pool.query("SELECT id, title, message, author_username, created_at FROM announcements ORDER BY created_at DESC LIMIT 50");
+    return response.json({ ok: true, announcements: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load announcements." });
+  }
+});
+
+app.post("/api/admin/announcements", requireAuth, requireBanManager, async (request, response) => {
+  const title = String(request.body.title || "").trim();
+  const message = String(request.body.message || "").trim();
+  if (!title || !message) {
+    return response.status(400).json({ error: "Title and message are required." });
+  }
+  try {
+    const result = await pool.query(
+      "INSERT INTO announcements (title, message, author_username) VALUES ($1, $2, $3) RETURNING id, title, message, author_username, created_at",
+      [title, message, request.user.username]
+    );
+    return response.json({ ok: true, announcement: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not post announcement." });
+  }
+});
+
+async function logAudit(action, adminUsername, details) {
+  try {
+    await pool.query("INSERT INTO audit_log (action, admin_username, details) VALUES ($1, $2, $3)", [action, adminUsername, details]);
+  } catch (error) {
+    console.error("Audit log error:", error);
+  }
+}
+
+app.post("/api/admin/give-items", requireAuth, requireBanManager, async (request, response) => {
+  const username = String(request.body.username || "").trim();
+  const code = Number(request.body.code);
+  if (!username || !code) {
+    return response.status(400).json({ error: "Username and item code are required." });
+  }
+  try {
+    const userResult = await pool.query("SELECT id FROM users WHERE username = $1", [username]);
+    if (!userResult.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    const userId = userResult.rows[0].id;
+    const itemResult = await pool.query("SELECT catalog_item_id FROM asset_imports WHERE code = $1", [code]);
+    if (!itemResult.rows[0]) {
+      return response.status(404).json({ error: "Item not found." });
+    }
+    const itemId = itemResult.rows[0].catalog_item_id;
+    await pool.query("INSERT INTO user_items (user_id, catalog_item_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [userId, itemId]);
+    await logAudit("give-items", request.user.username, `Gave item code ${code} to ${username}`);
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not give item." });
+  }
+});
+
+app.post("/api/admin/reset-password", requireAuth, requireBanManager, async (request, response) => {
+  const username = String(request.body.username || "").trim();
+  const newPassword = String(request.body.newPassword || "").trim();
+  if (!username || !newPassword) {
+    return response.status(400).json({ error: "Username and new password are required." });
+  }
+  try {
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const result = await pool.query("UPDATE users SET password_hash = $1 WHERE username = $2 RETURNING id", [hashedPassword, username]);
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    await logAudit("reset-password", request.user.username, `Reset password for ${username}`);
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not reset password." });
+  }
+});
+
+app.post("/api/admin/change-username", requireAuth, requireBanManager, async (request, response) => {
+  const currentUsername = String(request.body.currentUsername || "").trim();
+  const newUsername = String(request.body.newUsername || "").trim();
+  if (!currentUsername || !newUsername) {
+    return response.status(400).json({ error: "Current and new usernames are required." });
+  }
+  try {
+    const existing = await pool.query("SELECT id FROM users WHERE username = $1", [newUsername]);
+    if (existing.rows[0]) {
+      return response.status(400).json({ error: "Username already taken." });
+    }
+    const result = await pool.query("UPDATE users SET username = $1 WHERE username = $2 RETURNING id", [newUsername, currentUsername]);
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    await logAudit("change-username", request.user.username, `Changed username from ${currentUsername} to ${newUsername}`);
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not change username." });
+  }
+});
+
+app.get("/api/admin/audit-log", requireAuth, requireBanManager, async (request, response) => {
+  try {
+    const result = await pool.query("SELECT action, admin_username, details, created_at FROM audit_log ORDER BY created_at DESC LIMIT 100");
+    return response.json({ ok: true, logs: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load audit log." });
+  }
+});
+
+app.post("/api/admin/mass-message", requireAuth, requireBanManager, async (request, response) => {
+  const subject = String(request.body.subject || "").trim();
+  const body = String(request.body.body || "").trim();
+  if (!subject || !body) {
+    return response.status(400).json({ error: "Subject and message are required." });
+  }
+  try {
+    const users = await pool.query("SELECT id FROM users");
+    let sentCount = 0;
+    for (const user of users.rows) {
+      await pool.query("INSERT INTO messages (from_user_id, to_user_id, subject, body) VALUES ($1, $2, $3, $4)", [request.user.id, user.id, subject, body]);
+      sentCount++;
+    }
+    await logAudit("mass-message", request.user.username, `Sent mass message to ${sentCount} users: ${subject}`);
+    return response.json({ ok: true, sentCount });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not send mass message." });
+  }
+});
+
+app.get("/api/admin/maintenance-status", requireAuth, requireBanManager, async (request, response) => {
+  try {
+    const result = await pool.query("SELECT value FROM settings WHERE key = 'maintenance_mode'");
+    const maintenanceMode = result.rows[0] ? result.rows[0].value === "true" : false;
+    return response.json({ ok: true, maintenanceMode });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load maintenance status." });
+  }
+});
+
+app.post("/api/admin/toggle-maintenance", requireAuth, requireBanManager, async (request, response) => {
+  try {
+    const current = await pool.query("SELECT value FROM settings WHERE key = 'maintenance_mode'");
+    const currentValue = current.rows[0] ? current.rows[0].value === "true" : false;
+    const newValue = !currentValue;
+    await pool.query("UPDATE settings SET value = $1 WHERE key = 'maintenance_mode'", [newValue ? "true" : "false"]);
+    await logAudit("toggle-maintenance", request.user.username, `Toggled maintenance mode ${newValue ? "ON" : "OFF"}`);
+    return response.json({ ok: true, maintenanceMode: newValue });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not toggle maintenance mode." });
+  }
+});
+
+app.post("/api/admin/promote", requireAuth, requireBanManager, async (request, response) => {
+  const username = String(request.body.username || "").trim();
+  if (!username) {
+    return response.status(400).json({ error: "Username is required." });
+  }
+  try {
+    const result = await pool.query("UPDATE users SET is_admin = true WHERE username = $1 RETURNING id", [username]);
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    await logAudit("promote", request.user.username, `Promoted ${username} to admin`);
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not promote user." });
+  }
+});
+
+app.post("/api/admin/demote", requireAuth, requireBanManager, async (request, response) => {
+  const username = String(request.body.username || "").trim();
+  if (!username) {
+    return response.status(400).json({ error: "Username is required." });
+  }
+  try {
+    const result = await pool.query("UPDATE users SET is_admin = false WHERE username = $1 RETURNING id", [username]);
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    await logAudit("demote", request.user.username, `Demoted ${username} from admin`);
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not demote user." });
+  }
+});
+
+app.get("/api/admin/list", requireAuth, requireBanManager, async (request, response) => {
+  try {
+    const result = await pool.query("SELECT username FROM users WHERE is_admin = true ORDER BY username");
+    return response.json({ ok: true, admins: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load admin list." });
+  }
+});
+
+app.get("/api/admin/reports", requireAuth, requireBanManager, async (request, response) => {
+  try {
+    const result = await pool.query("SELECT username, subject, message, created_at FROM reports ORDER BY created_at DESC LIMIT 100");
+    return response.json({ ok: true, reports: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load reports." });
+  }
+});
+
+app.post("/api/reports", requireAuth, async (request, response) => {
+  const subject = String(request.body.subject || "").trim();
+  const message = String(request.body.message || "").trim();
+  if (!subject || !message) {
+    return response.status(400).json({ error: "Subject and message are required." });
+  }
+  try {
+    await pool.query("INSERT INTO reports (username, subject, message) VALUES ($1, $2, $3)", [request.user.username, subject, message]);
+    return response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not submit report." });
   }
 });
 
@@ -2795,15 +3218,111 @@ function startDiscordBot() {
     const args = parts.slice(1);
 
     const isAdmin = isAdminUsername(message.author.username);
-    if (!isAdmin) {
-      return message.reply("Only admins can use bot commands.");
+
+    const publicCommands = new Set(["help", "ping", "uptime", "balance", "bal", "profile", "item", "server", "commands", "link"]);
+    if (!isAdmin && !publicCommands.has(command)) {
+      return message.reply("Only admins can use that command. Type `!commands` for public commands.");
     }
 
     try {
       switch (command) {
-        case "help": {
+        case "help":
+        case "commands": {
+          const publicList = [
+            "`!commands` — list public commands",
+            "`!ping` — check bot latency",
+            "`!uptime` — bot uptime",
+            "`!balance` / `!bal` — check your Robux",
+            "`!profile <user>` — view user profile",
+            "`!item <code>` — look up item by code",
+            "`!server` — server stats"
+          ];
+          const adminList = isAdmin ? [
+            "",
+            "**Admin commands:**",
+            "`!ban <user> [reason]`",
+            "`!unban <user>`",
+            "`!give-robux <user> <amount>`",
+            "`!robux <user>` — check user's Robux",
+            "`!users` — list all users",
+            "`!stats` — detailed server stats",
+            "`!announce <title> | <message>` — post announcement",
+            "`!maintenance` — toggle maintenance mode",
+            "`!promote <user>` / `!demote <user>`",
+            "`!search <user>` — find user details",
+            "`!give-item <user> <code>` — give catalog item",
+            "`!reset-pass <user> <newpass>`",
+            "`!rename <old> <new>` — change username",
+            "`!massmsg <subject> | <body>` — mass message",
+            "`!reports` — recent user reports",
+            "`!audit` — recent admin actions"
+          ] : [];
+          return message.reply({ content: "**Public commands:**\n" + publicList.join("\n") + adminList.join("\n") });
+        }
+        case "ping": {
+          const sent = await message.reply("Pinging...");
+          const latency = sent.createdTimestamp - message.createdTimestamp;
+          return sent.edit(`Pong! Latency: **${latency}ms**`);
+        }
+        case "uptime": {
+          const seconds = Math.floor(process.uptime());
+          const h = Math.floor(seconds / 3600);
+          const m = Math.floor((seconds % 3600) / 60);
+          const s = seconds % 60;
+          return message.reply(`Uptime: **${h}h ${m}m ${s}s**`);
+        }
+        case "balance":
+        case "bal": {
+          const username = args[0] || message.author.username;
+          const result = await pool.query("SELECT username, robux FROM users WHERE LOWER(username) = LOWER($1)", [username]);
+          if (!result.rows[0]) return message.reply(`User "${username}" not found.`);
+          return message.reply(`**${result.rows[0].username}** has **${result.rows[0].robux || 0}** Robux.`);
+        }
+        case "profile": {
+          const username = args[0];
+          if (!username) return message.reply("Usage: `!profile <username>`");
+          const result = await pool.query(
+            "SELECT username, robux, banned, created_at FROM users WHERE LOWER(username) = LOWER($1)",
+            [username]
+          );
+          if (!result.rows[0]) return message.reply(`User "${username}" not found.`);
+          const u = result.rows[0];
           return message.reply(
-            "Commands: `!ban <user> [reason]`, `!unban <user>`, `!give-robux <user> <amount>`, `!robux <user>`, `!users`, `!help`"
+            `**${u.username}**\nRobux: ${u.robux || 0}\nBanned: ${u.banned ? "Yes" : "No"}\nJoined: ${new Date(u.created_at).toLocaleDateString()}`
+          );
+        }
+        case "item": {
+          const code = Number(args[0]);
+          if (!Number.isInteger(code) || code < 1) return message.reply("Usage: `!item <code>`");
+          const result = await pool.query(
+            "SELECT ci.name, ci.price, ci.creator_username FROM catalog_items ci JOIN asset_imports ai ON ci.id = ai.catalog_item_id WHERE ai.code = $1",
+            [code]
+          );
+          if (!result.rows[0]) return message.reply(`No item found with code **${code}**.`);
+          const item = result.rows[0];
+          return message.reply(`**${item.name}** (code: ${code})\nPrice: ${item.price || "Free"}\nCreator: ${item.creator_username || "Roblox"}`);
+        }
+        case "server": {
+          const userCount = await pool.query("SELECT COUNT(*) AS total FROM users");
+          const bannedCount = await pool.query("SELECT COUNT(*) AS total FROM users WHERE banned = true");
+          const totalRobux = await pool.query("SELECT COALESCE(SUM(robux), 0) AS total FROM users");
+          const itemCount = await pool.query("SELECT COUNT(*) AS total FROM catalog_items");
+          return message.reply(
+            `**Server Stats**\nUsers: ${userCount.rows[0].total}\nBanned: ${bannedCount.rows[0].total}\nTotal Robux: ${totalRobux.rows[0].total}\nCatalog items: ${itemCount.rows[0].total}`
+          );
+        }
+        case "link": {
+          const username = args[0];
+          if (!username) return message.reply("Usage: `!link <username>`\nGo to the site, log in, and enter the code I give you to verify it's your account.");
+          const userResult = await pool.query("SELECT id FROM users WHERE LOWER(username) = LOWER($1)", [username]);
+          if (!userResult.rows[0]) return message.reply(`User "${username}" not found. Make sure you've created an account on the site first.`);
+          const code = Math.floor(100000 + Math.random() * 900000).toString();
+          await pool.query(
+            "INSERT INTO discord_link_codes (user_id, discord_id, discord_username, code) VALUES ($1, $2, $3, $4)",
+            [userResult.rows[0].id, message.author.id, message.author.username, code]
+          );
+          return message.reply(
+            `**Account Linking**\nYour verification code is: **${code}**\n\nGo to the site, log in as **${username}**, and enter this code to link your Discord account. The code expires in 10 minutes.`
           );
         }
         case "ban": {
@@ -2862,8 +3381,158 @@ function startDiscordBot() {
           const lines = result.rows.map((u) => `**${u.username}** — ${u.robux || 0} Robux${u.banned ? " [BANNED]" : ""}`);
           return message.reply(lines.join("\n") || "No users.");
         }
+        case "stats": {
+          const userCount = await pool.query("SELECT COUNT(*) AS total FROM users");
+          const bannedCount = await pool.query("SELECT COUNT(*) AS total FROM users WHERE banned = true");
+          const totalRobux = await pool.query("SELECT COALESCE(SUM(robux), 0) AS total FROM users");
+          const itemCount = await pool.query("SELECT COUNT(*) AS total FROM catalog_items");
+          const creationCount = await pool.query("SELECT COUNT(*) AS total FROM creations");
+          const adminCount = await pool.query("SELECT COUNT(*) AS total FROM users WHERE is_admin = true");
+          const reportCount = await pool.query("SELECT COUNT(*) AS total FROM reports");
+          const announcementCount = await pool.query("SELECT COUNT(*) AS total FROM announcements");
+          return message.reply(
+            `**Detailed Server Stats**\n` +
+            `Users: ${userCount.rows[0].total}\n` +
+            `Admins: ${adminCount.rows[0].total}\n` +
+            `Banned: ${bannedCount.rows[0].total}\n` +
+            `Total Robux in circulation: ${totalRobux.rows[0].total}\n` +
+            `Catalog items: ${itemCount.rows[0].total}\n` +
+            `User creations: ${creationCount.rows[0].total}\n` +
+            `Pending reports: ${reportCount.rows[0].total}\n` +
+            `Announcements: ${announcementCount.rows[0].total}`
+          );
+        }
+        case "announce": {
+          const pipeIndex = text.indexOf("|");
+          if (pipeIndex === -1) return message.reply("Usage: `!announce <title> | <message>`");
+          const title = text.slice(text.indexOf(" ") + 1, pipeIndex).trim();
+          const msg = text.slice(pipeIndex + 1).trim();
+          if (!title || !msg) return message.reply("Usage: `!announce <title> | <message>`");
+          await pool.query(
+            "INSERT INTO announcements (title, message, author_username) VALUES ($1, $2, $3)",
+            [title, msg, message.author.username]
+          );
+          return message.reply(`Announcement posted: **${title}**`);
+        }
+        case "maintenance": {
+          const setting = await pool.query("SELECT value FROM settings WHERE key = 'maintenance_mode'");
+          const current = setting.rows[0] ? setting.rows[0].value === "true" : false;
+          const newVal = !current;
+          if (setting.rows[0]) {
+            await pool.query("UPDATE settings SET value = $1 WHERE key = 'maintenance_mode'", [String(newVal)]);
+          } else {
+            await pool.query("INSERT INTO settings (key, value) VALUES ('maintenance_mode', $1)", [String(newVal)]);
+          }
+          return message.reply(`Maintenance mode ${newVal ? "enabled" : "disabled"}.`);
+        }
+        case "promote": {
+          const username = args[0];
+          if (!username) return message.reply("Usage: `!promote <username>`");
+          const result = await pool.query(
+            "UPDATE users SET is_admin = true WHERE LOWER(username) = LOWER($1) RETURNING username",
+            [username]
+          );
+          if (!result.rows[0]) return message.reply(`User "${username}" not found.`);
+          return message.reply(`Promoted **${result.rows[0].username}** to admin.`);
+        }
+        case "demote": {
+          const username = args[0];
+          if (!username) return message.reply("Usage: `!demote <username>`");
+          const result = await pool.query(
+            "UPDATE users SET is_admin = false WHERE LOWER(username) = LOWER($1) RETURNING username",
+            [username]
+          );
+          if (!result.rows[0]) return message.reply(`User "${username}" not found.`);
+          return message.reply(`Demoted **${result.rows[0].username}** from admin.`);
+        }
+        case "search": {
+          const username = args[0];
+          if (!username) return message.reply("Usage: `!search <username>`");
+          const result = await pool.query(
+            "SELECT username, robux, banned, is_admin, created_at FROM users WHERE LOWER(username) LIKE LOWER($1)",
+            [`%${username}%`]
+          );
+          if (!result.rows.length) return message.reply(`No users matching "${username}".`);
+          const lines = result.rows.map((u) =>
+            `**${u.username}** — ${u.robux || 0} Robux${u.banned ? " [BANNED]" : ""}${u.is_admin ? " [ADMIN]" : ""}`
+          );
+          return message.reply(lines.join("\n"));
+        }
+        case "give-item": {
+          const username = args[0];
+          const code = Number(args[1]);
+          if (!username || !Number.isInteger(code) || code < 1) {
+            return message.reply("Usage: `!give-item <username> <code>`");
+          }
+          const userResult = await pool.query("SELECT id, username FROM users WHERE LOWER(username) = LOWER($1)", [username]);
+          if (!userResult.rows[0]) return message.reply(`User "${username}" not found.`);
+          const itemResult = await pool.query("SELECT catalog_item_id FROM asset_imports WHERE code = $1", [code]);
+          if (!itemResult.rows[0]) return message.reply(`No item with code **${code}**.`);
+          const userId = userResult.rows[0].id;
+          const itemId = itemResult.rows[0].catalog_item_id;
+          const existing = await pool.query("SELECT id FROM user_items WHERE user_id = $1 AND catalog_item_id = $2", [userId, itemId]);
+          if (existing.rows[0]) return message.reply(`**${userResult.rows[0].username}** already owns that item.`);
+          await pool.query("INSERT INTO user_items (user_id, catalog_item_id) VALUES ($1, $2)", [userId, itemId]);
+          return message.reply(`Gave item (code ${code}) to **${userResult.rows[0].username}**.`);
+        }
+        case "reset-pass": {
+          const username = args[0];
+          const newPass = args[1];
+          if (!username || !newPass) return message.reply("Usage: `!reset-pass <username> <newpassword>`");
+          const hash = await bcrypt.hash(newPass, 12);
+          const result = await pool.query(
+            "UPDATE users SET password_hash = $1 WHERE LOWER(username) = LOWER($2) RETURNING username",
+            [hash, username]
+          );
+          if (!result.rows[0]) return message.reply(`User "${username}" not found.`);
+          return message.reply(`Password reset for **${result.rows[0].username}**.`);
+        }
+        case "rename": {
+          const oldName = args[0];
+          const newName = args[1];
+          if (!oldName || !newName) return message.reply("Usage: `!rename <oldname> <newname>`");
+          const result = await pool.query(
+            "UPDATE users SET username = $1 WHERE LOWER(username) = LOWER($2) RETURNING username",
+            [newName, oldName]
+          );
+          if (!result.rows[0]) return message.reply(`User "${oldName}" not found.`);
+          return message.reply(`Renamed **${oldName}** → **${newName}**.`);
+        }
+        case "massmsg": {
+          const pipeIndex = text.indexOf("|");
+          if (pipeIndex === -1) return message.reply("Usage: `!massmsg <subject> | <body>`");
+          const subject = text.slice(text.indexOf(" ") + 1, pipeIndex).trim();
+          const body = text.slice(pipeIndex + 1).trim();
+          if (!subject || !body) return message.reply("Usage: `!massmsg <subject> | <body>`");
+          const users = await pool.query("SELECT id FROM users");
+          for (const user of users.rows) {
+            await pool.query(
+              "INSERT INTO messages (sender_id, recipient_id, subject, body) VALUES (0, $1, $2, $3)",
+              [user.id, subject, body]
+            );
+          }
+          return message.reply(`Mass message sent to **${users.rows.length}** users.`);
+        }
+        case "reports": {
+          const result = await pool.query("SELECT subject, message, username, created_at FROM reports ORDER BY created_at DESC LIMIT 10");
+          if (!result.rows.length) return message.reply("No reports submitted yet.");
+          const lines = result.rows.map((r) =>
+            `**${r.subject}** by ${r.username}\n${r.message}\n${new Date(r.created_at).toLocaleString()}`
+          );
+          return message.reply(lines.join("\n\n"));
+        }
+        case "audit": {
+          const result = await pool.query(
+            "SELECT action, admin_username, details, created_at FROM audit_log ORDER BY created_at DESC LIMIT 10"
+          );
+          if (!result.rows.length) return message.reply("No admin actions recorded yet.");
+          const lines = result.rows.map((r) =>
+            `**${r.action}** by ${r.admin_username}\n${r.details}\n${new Date(r.created_at).toLocaleString()}`
+          );
+          return message.reply(lines.join("\n\n"));
+        }
         default:
-          return message.reply(`Unknown command. Type \`!help\` for a list.`);
+          return message.reply(`Unknown command. Type \`!commands\` for a list.`);
       }
     } catch (error) {
       console.error("Discord bot command error:", error);
