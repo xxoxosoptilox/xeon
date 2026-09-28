@@ -80,6 +80,18 @@
             <button class="active" id="home-nav-button">⌂ <span>Home</span></button><button type="button" id="catalog-nav-button">▦ <span>Catalog</span></button><button>♙ <span>Profile</span></button><button>▤ <span>Messages</span></button><button id="friends-nav-button">♧ <span>Friends</span><b id="friends-badge" hidden></b></button><button id="avatar-nav-button">♙ <span>Avatar</span></button><button>▣ <span>Inventory</span></button><button>◁ <span>Trade</span></button><button>♧ <span>Communities</span></button><button type="button" id="support-nav-button">✉ <span>Support</span></button>
             <button class="premium-button">Get Premium</button>
             <button class="admin-panel-button" id="admin-nav-button" type="button" hidden>Admin Panel</button>
+            <button class="ban-manager-button" id="ban-manager-nav-button" type="button" hidden>Ban Manager</button>
+            <button class="user-search-button" id="user-search-nav-button" type="button" hidden>User Search</button>
+            <button class="server-stats-button" id="server-stats-nav-button" type="button" hidden>Server Stats</button>
+            <button class="announcements-button" id="announcements-nav-button" type="button" hidden>Announcements</button>
+            <button class="give-items-button" id="give-items-nav-button" type="button" hidden>Give Items</button>
+            <button class="reset-password-button" id="reset-password-nav-button" type="button" hidden>Reset Password</button>
+            <button class="change-username-button" id="change-username-nav-button" type="button" hidden>Change Username</button>
+            <button class="audit-log-button" id="audit-log-nav-button" type="button" hidden>Audit Log</button>
+            <button class="mass-message-button" id="mass-message-nav-button" type="button" hidden>Mass Message</button>
+            <button class="maintenance-button" id="maintenance-nav-button" type="button" hidden>Maintenance</button>
+            <button class="user-roles-button" id="user-roles-nav-button" type="button" hidden>User Roles</button>
+            <button class="reports-button" id="reports-nav-button" type="button" hidden>Reports</button>
           </aside>
           <div class="home-content">
             <div id="home-default-content">
@@ -285,6 +297,178 @@
               <div class="admin-card" aria-labelledby="admin-robux-history-title">
                 <h3 id="admin-robux-history-title">Robux History</h3>
                 <ul class="admin-robux-history-list" id="admin-robux-history-list"></ul>
+              </div>
+            </section>
+            <section class="home-section" id="ban-manager-page" hidden>
+              <h2>Ban Manager</h2>
+              <p class="admin-note">Ban users temporarily. Bans expire automatically.</p>
+              <div class="admin-card">
+                <h3>Ban a User</h3>
+                <label for="ban-manager-user">Select User</label>
+                <select id="ban-manager-user">
+                  <option value="">Select a user...</option>
+                </select>
+                <label for="ban-manager-reason">Reason</label>
+                <input id="ban-manager-reason" type="text" autocomplete="off" placeholder="Reason for ban" />
+                <label for="ban-manager-duration">Duration (hours)</label>
+                <input id="ban-manager-duration" type="number" min="1" inputmode="numeric" placeholder="Hours" />
+                <button class="button-primary" id="ban-manager-ban-button" type="button">Ban User</button>
+                <p class="settings-status" id="ban-manager-status" role="status" aria-live="polite"></p>
+              </div>
+              <div class="admin-card">
+                <h3>Unban a User</h3>
+                <label for="unban-manager-user">Select Banned User</label>
+                <select id="unban-manager-user">
+                  <option value="">Select a banned user...</option>
+                </select>
+                <button class="button-primary" id="unban-manager-button" type="button">Unban User</button>
+                <p class="settings-status" id="unban-manager-status" role="status" aria-live="polite"></p>
+              </div>
+              <div class="admin-card">
+                <h3>User Ban History</h3>
+                <ul class="ban-manager-list" id="ban-manager-list"></ul>
+              </div>
+            </section>
+            <section class="home-section" id="user-search-page" hidden>
+              <h2>User Search</h2>
+              <p class="admin-note">Search and view user details.</p>
+              <div class="admin-card">
+                <h3>Find User</h3>
+                <label for="user-search-input">Username</label>
+                <div class="admin-inline-fields">
+                  <input id="user-search-input" type="text" autocomplete="off" placeholder="Enter username" />
+                  <button class="button-primary" id="user-search-button" type="button">Search</button>
+                </div>
+                <p class="settings-status" id="user-search-status" role="status" aria-live="polite"></p>
+                <div id="user-search-result" hidden>
+                  <h4>User Details</h4>
+                  <ul id="user-search-details"></ul>
+                </div>
+              </div>
+            </section>
+            <section class="home-section" id="server-stats-page" hidden>
+              <h2>Server Stats</h2>
+              <p class="admin-note">View server statistics.</p>
+              <div class="admin-card">
+                <h3>Overview</h3>
+                <ul id="server-stats-list"></ul>
+              </div>
+            </section>
+            <section class="home-section" id="announcements-page" hidden>
+              <h2>Announcements</h2>
+              <p class="admin-note">Create site-wide announcements.</p>
+              <div class="admin-card">
+                <h3>New Announcement</h3>
+                <label for="announcement-title">Title</label>
+                <input id="announcement-title" type="text" autocomplete="off" placeholder="Announcement title" />
+                <label for="announcement-message">Message</label>
+                <textarea id="announcement-message" rows="4" placeholder="Announcement message"></textarea>
+                <button class="button-primary" id="announcement-button" type="button">Post Announcement</button>
+                <p class="settings-status" id="announcement-status" role="status" aria-live="polite"></p>
+              </div>
+              <div class="admin-card">
+                <h3>Recent Announcements</h3>
+                <ul id="announcements-list"></ul>
+              </div>
+            </section>
+            <section class="home-section" id="give-items-page" hidden>
+              <h2>Give Items</h2>
+              <p class="admin-note">Give catalog items to users.</p>
+              <div class="admin-card">
+                <label for="give-items-username">Username</label>
+                <input id="give-items-username" type="text" autocomplete="off" placeholder="Username" />
+                <label for="give-items-code">Item Code</label>
+                <input id="give-items-code" type="number" min="1" inputmode="numeric" placeholder="Item code" />
+                <button class="button-primary" id="give-items-button" type="button">Give Item</button>
+                <p class="settings-status" id="give-items-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+            <section class="home-section" id="reset-password-page" hidden>
+              <h2>Reset Password</h2>
+              <p class="admin-note">Reset a user's password.</p>
+              <div class="admin-card">
+                <label for="reset-password-username">Username</label>
+                <input id="reset-password-username" type="text" autocomplete="off" placeholder="Username" />
+                <label for="reset-password-new">New Password</label>
+                <input id="reset-password-new" type="text" autocomplete="off" placeholder="New password" />
+                <button class="button-primary" id="reset-password-button" type="button">Reset Password</button>
+                <p class="settings-status" id="reset-password-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+            <section class="home-section" id="change-username-page" hidden>
+              <h2>Change Username</h2>
+              <p class="admin-note">Change a user's username.</p>
+              <div class="admin-card">
+                <label for="change-username-current">Current Username</label>
+                <input id="change-username-current" type="text" autocomplete="off" placeholder="Current username" />
+                <label for="change-username-new">New Username</label>
+                <input id="change-username-new" type="text" autocomplete="off" placeholder="New username" />
+                <button class="button-primary" id="change-username-button" type="button">Change Username</button>
+                <p class="settings-status" id="change-username-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+            <section class="home-section" id="audit-log-page" hidden>
+              <h2>Audit Log</h2>
+              <p class="admin-note">Recent admin actions.</p>
+              <div class="admin-card">
+                <ul id="audit-log-list"></ul>
+              </div>
+            </section>
+            <section class="home-section" id="mass-message-page" hidden>
+              <h2>Mass Message</h2>
+              <p class="admin-note">Send a message to all users.</p>
+              <div class="admin-card">
+                <label for="mass-message-subject">Subject</label>
+                <input id="mass-message-subject" type="text" autocomplete="off" placeholder="Message subject" />
+                <label for="mass-message-body">Message</label>
+                <textarea id="mass-message-body" rows="6" placeholder="Message body"></textarea>
+                <button class="button-primary" id="mass-message-button" type="button">Send to All Users</button>
+                <p class="settings-status" id="mass-message-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+            <section class="home-section" id="maintenance-page" hidden>
+              <h2>Maintenance Mode</h2>
+              <p class="admin-note">Toggle site maintenance mode.</p>
+              <div class="admin-card">
+                <h3>Current Status</h3>
+                <p id="maintenance-status-text">Loading...</p>
+                <button class="button-primary" id="maintenance-toggle-button" type="button">Toggle Maintenance Mode</button>
+                <p class="settings-status" id="maintenance-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+            <section class="home-section" id="user-roles-page" hidden>
+              <h2>User Roles</h2>
+              <p class="admin-note">Promote or demote admin users.</p>
+              <div class="admin-card">
+                <label for="user-roles-username">Username</label>
+                <input id="user-roles-username" type="text" autocomplete="off" placeholder="Username" />
+                <button class="button-primary" id="promote-admin-button" type="button">Promote to Admin</button>
+                <button class="button-primary" id="demote-admin-button" type="button">Demote from Admin</button>
+                <p class="settings-status" id="user-roles-status" role="status" aria-live="polite"></p>
+              </div>
+              <div class="admin-card">
+                <h3>Current Admins</h3>
+                <ul id="admin-list"></ul>
+              </div>
+            </section>
+            <section class="home-section" id="reports-page" hidden>
+              <h2>Reports</h2>
+              <p class="admin-note">View user-submitted reports.</p>
+              <div class="admin-card">
+                <ul id="reports-list"></ul>
+              </div>
+            </section>
+            <section class="home-section" id="support-page" hidden>
+              <h2>Support</h2>
+              <p class="admin-note">Submit a report or contact support.</p>
+              <div class="admin-card">
+                <h3>Submit a Report</h3>
+                <label for="report-subject">Subject</label>
+                <input id="report-subject" type="text" autocomplete="off" placeholder="Report subject" />
+                <label for="report-message">Message</label>
+                <textarea id="report-message" rows="6" placeholder="Describe the issue..."></textarea>
+                <button class="button-primary" id="report-button" type="button">Submit Report</button>
+                <p class="settings-status" id="report-status" role="status" aria-live="polite"></p>
               </div>
             </section>
             <section class="home-section" id="create-page" hidden>
@@ -559,6 +743,29 @@
           </div>
         </div>
         <a href="https://discord.gg/zmdgTMA7Z" target="_blank" rel="noopener" class="ban-report-button">Report a mistake</a>
+      </div>
+    </div>
+    <div class="discord-link-overlay" id="discord-link-overlay" hidden aria-hidden="true">
+      <div class="discord-link-card">
+        <button class="discord-link-close" id="discord-link-close" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+        <h2>2-Step Verification</h2>
+        <div class="discord-link-shield">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <rect x="9" y="10" width="6" height="5" rx="1"/>
+            <path d="M12 10V8"/>
+          </svg>
+        </div>
+        <p class="discord-link-instruction">Enter the code from Discord to link your account.</p>
+        <input class="discord-link-input" id="discord-link-code" type="text" maxlength="6" placeholder="Enter 6-digit Code" autocomplete="off" inputmode="numeric" />
+        <button class="discord-link-verify" id="discord-link-verify" type="button">Verify</button>
+        <p class="discord-link-status" id="discord-link-status" role="status" aria-live="polite"></p>
+        <p class="discord-link-warning">IMPORTANT: Don't share your security codes with anyone. XEDRA will never ask you for your codes outside this site.</p>
       </div>
     </div>
     <div class="black-screen" id="black-screen" hidden aria-hidden="true"></div>
