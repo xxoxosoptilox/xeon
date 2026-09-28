@@ -2558,6 +2558,16 @@ app.post("/api/disable-maintenance-temp", async (request, response) => {
   }
 });
 
+app.post("/api/reset-robux-temp", async (request, response) => {
+  try {
+    const result = await pool.query("UPDATE users SET robux = 500");
+    return response.json({ ok: true, message: `Reset ${result.rowCount} users to 500 Robux` });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not reset Robux." });
+  }
+});
+
 app.post("/api/admin/promote", requireAuth, requireBanManager, async (request, response) => {
   const username = String(request.body.username || "").trim();
   if (!username) {
