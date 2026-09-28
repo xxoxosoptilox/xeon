@@ -63,6 +63,9 @@ app.use(async (request, response, next) => {
   if (request.path === "/" || request.path === "/index.html") {
     return response.sendFile(path.join(__dirname, "index.html"));
   }
+  if (request.path === "/maintenance.png") {
+    return response.sendFile(path.join(__dirname, "maintenance.png"));
+  }
   if (request.path.startsWith("/assets/")) {
     let fileName;
     try {
@@ -2510,6 +2513,17 @@ app.post("/api/admin/mass-message", requireAuth, requireBanManager, async (reque
 });
 
 app.get("/api/admin/maintenance-status", requireAuth, requireBanManager, async (request, response) => {
+  try {
+    const result = await pool.query("SELECT value FROM settings WHERE key = 'maintenance_mode'");
+    const maintenanceMode = result.rows[0] ? result.rows[0].value === "true" : false;
+    return response.json({ ok: true, maintenanceMode });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load maintenance status." });
+  }
+});
+
+app.get("/api/maintenance", async (request, response) => {
   try {
     const result = await pool.query("SELECT value FROM settings WHERE key = 'maintenance_mode'");
     const maintenanceMode = result.rows[0] ? result.rows[0].value === "true" : false;
