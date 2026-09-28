@@ -94,6 +94,45 @@ function displayUser(user) {
   if (!isAvatarUser) {
     avatarPage.hidden = true;
   }
+  const isBanManager = (user.username || "").toLowerCase() === "marsargo";
+  banManagerNavButton.hidden = !isBanManager;
+  banManagerNavButton.style.display = isBanManager ? "" : "none";
+  userSearchNavButton.hidden = !isBanManager;
+  userSearchNavButton.style.display = isBanManager ? "" : "none";
+  serverStatsNavButton.hidden = !isBanManager;
+  serverStatsNavButton.style.display = isBanManager ? "" : "none";
+  announcementsNavButton.hidden = !isBanManager;
+  announcementsNavButton.style.display = isBanManager ? "" : "none";
+  giveItemsNavButton.hidden = !isBanManager;
+  giveItemsNavButton.style.display = isBanManager ? "" : "none";
+  resetPasswordNavButton.hidden = !isBanManager;
+  resetPasswordNavButton.style.display = isBanManager ? "" : "none";
+  changeUsernameNavButton.hidden = !isBanManager;
+  changeUsernameNavButton.style.display = isBanManager ? "" : "none";
+  auditLogNavButton.hidden = !isBanManager;
+  auditLogNavButton.style.display = isBanManager ? "" : "none";
+  massMessageNavButton.hidden = !isBanManager;
+  massMessageNavButton.style.display = isBanManager ? "" : "none";
+  maintenanceNavButton.hidden = !isBanManager;
+  maintenanceNavButton.style.display = isBanManager ? "" : "none";
+  userRolesNavButton.hidden = !isBanManager;
+  userRolesNavButton.style.display = isBanManager ? "" : "none";
+  reportsNavButton.hidden = !isBanManager;
+  reportsNavButton.style.display = isBanManager ? "" : "none";
+  if (!isBanManager) {
+    banManagerPage.hidden = true;
+    userSearchPage.hidden = true;
+    serverStatsPage.hidden = true;
+    announcementsPage.hidden = true;
+    giveItemsPage.hidden = true;
+    resetPasswordPage.hidden = true;
+    changeUsernamePage.hidden = true;
+    auditLogPage.hidden = true;
+    massMessagePage.hidden = true;
+    maintenancePage.hidden = true;
+    userRolesPage.hidden = true;
+    reportsPage.hidden = true;
+  }
   applyTheme(user.preferences && user.preferences.theme);
   void loadHomeFriends();
   void loadRecommended();
@@ -345,14 +384,7 @@ const searchResultsCount = document.querySelector("#search-results-count");
 const searchResultsGrid = document.querySelector("#search-results-grid");
 
 function showDefaultHomeContent() {
-  searchResultsSection.hidden = true;
-  friendsPage.hidden = true;
-  catalogPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = true;
-  createPage.hidden = true;
-  configurePage.hidden = true;
-  avatarPage.hidden = true;
+  hideAllPages();
   homeDefaultContent.hidden = false;
 }
 
@@ -437,12 +469,7 @@ async function runPlayerSearch(rawQuery) {
   searchResultsQuery.textContent = query;
   searchResultsCount.textContent = "Searching...";
   searchResultsGrid.textContent = "";
-  homeDefaultContent.hidden = true;
-  friendsPage.hidden = true;
-  catalogPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = true;
-  avatarPage.hidden = true;
+  hideAllPages();
   searchResultsSection.hidden = false;
 
   try {
@@ -541,14 +568,7 @@ const friendsPanels = {
 };
 
 function showFriendsPage() {
-  homeDefaultContent.hidden = true;
-  searchResultsSection.hidden = true;
-  catalogPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = true;
-  createPage.hidden = true;
-  configurePage.hidden = true;
-  avatarPage.hidden = true;
+  hideAllPages();
   friendsPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadFriendsPage();
@@ -556,9 +576,7 @@ function showFriendsPage() {
 
 friendsNavButton.addEventListener("click", showFriendsPage);
 
-supportNavButton.addEventListener("click", () => {
-  window.open("https://discord.gg/VDHnCDtX2", "_blank", "noopener");
-});
+supportNavButton.addEventListener("click", showSupportPage);
 
 friendsTabs.forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -861,14 +879,7 @@ function buildGenreRadios() {
 buildGenreRadios();
 
 function showCatalogPage() {
-  homeDefaultContent.hidden = true;
-  searchResultsSection.hidden = true;
-  friendsPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = true;
-  createPage.hidden = true;
-  configurePage.hidden = true;
-  avatarPage.hidden = true;
+  hideAllPages();
   catalogPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadCatalog();
@@ -1459,14 +1470,7 @@ const itemDetail = document.querySelector("#item-detail");
 const itemBackButton = document.querySelector("#item-back-button");
 
 function showAdminPage() {
-  homeDefaultContent.hidden = true;
-  searchResultsSection.hidden = true;
-  friendsPage.hidden = true;
-  catalogPage.hidden = true;
-  itemPage.hidden = true;
-  createPage.hidden = true;
-  configurePage.hidden = true;
-  avatarPage.hidden = true;
+  hideAllPages();
   adminPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadAdminCodes();
@@ -1475,6 +1479,645 @@ function showAdminPage() {
 }
 
 adminNavButton.addEventListener("click", showAdminPage);
+
+const banManagerNavButton = document.querySelector("#ban-manager-nav-button");
+const banManagerPage = document.querySelector("#ban-manager-page");
+const banManagerUser = document.querySelector("#ban-manager-user");
+const banManagerReason = document.querySelector("#ban-manager-reason");
+const banManagerDuration = document.querySelector("#ban-manager-duration");
+const banManagerBanButton = document.querySelector("#ban-manager-ban-button");
+const banManagerStatus = document.querySelector("#ban-manager-status");
+const banManagerList = document.querySelector("#ban-manager-list");
+
+function showBanManagerPage() {
+  hideAllPages();
+  banManagerPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadBanManagerUsers();
+}
+
+banManagerNavButton.addEventListener("click", showBanManagerPage);
+
+async function loadBanManagerUsers() {
+  const { ok, result } = await apiCall("GET", "/api/ban-manager/users");
+  if (!ok) {
+    setStatus(banManagerStatus, result.error || "Could not load users.", true);
+    return;
+  }
+  banManagerUser.innerHTML = '<option value="">Select a user...</option>';
+  for (const user of result.users) {
+    const option = document.createElement("option");
+    option.value = user.id;
+    option.textContent = user.username;
+    if (user.banned) {
+      option.textContent += " (BANNED)";
+    }
+    banManagerUser.appendChild(option);
+  }
+  banManagerList.innerHTML = "";
+  for (const user of result.users) {
+    if (user.ban_count > 0 || user.banned) {
+      const li = document.createElement("li");
+      if (user.banned) {
+        li.className = "banned";
+      }
+      const expiresText = user.ban_expires_at ? new Date(user.ban_expires_at).toLocaleString() : "Never";
+      li.innerHTML = `<strong>${user.username}</strong> — Bans: ${user.ban_count || 0}${user.banned ? ` — Reason: ${user.ban_reason || "None"} — Expires: ${expiresText}` : " — Not banned"}`;
+      banManagerList.appendChild(li);
+    }
+  }
+}
+
+banManagerBanButton.addEventListener("click", async () => {
+  const userId = banManagerUser.value;
+  const reason = banManagerReason.value.trim();
+  const duration = Number(banManagerDuration.value);
+  if (!userId) {
+    setStatus(banManagerStatus, "Select a user.", true);
+    return;
+  }
+  if (!reason) {
+    setStatus(banManagerStatus, "Enter a reason.", true);
+    return;
+  }
+  if (!Number.isInteger(duration) || duration <= 0) {
+    setStatus(banManagerStatus, "Enter a valid duration in hours.", true);
+    return;
+  }
+  banManagerBanButton.disabled = true;
+  setStatus(banManagerStatus, "Banning user...");
+  const { ok, result } = await apiCall("POST", "/api/ban-manager/ban", { userId, reason, durationHours: duration });
+  banManagerBanButton.disabled = false;
+  if (!ok) {
+    setStatus(banManagerStatus, result.error || "Could not ban user.", true);
+    return;
+  }
+  setStatus(banManagerStatus, `Banned ${result.username}. Ban count: ${result.banCount}. Expires: ${new Date(result.expiresAt).toLocaleString()}.`);
+  banManagerReason.value = "";
+  banManagerDuration.value = "";
+  void loadBanManagerUsers();
+});
+
+const unbanManagerUser = document.querySelector("#unban-manager-user");
+const unbanManagerButton = document.querySelector("#unban-manager-button");
+const unbanManagerStatus = document.querySelector("#unban-manager-status");
+
+async function loadBanManagerUsers() {
+  const { ok, result } = await apiCall("GET", "/api/ban-manager/users");
+  if (!ok) {
+    setStatus(banManagerStatus, result.error || "Could not load users.", true);
+    return;
+  }
+  banManagerUser.innerHTML = '<option value="">Select a user...</option>';
+  unbanManagerUser.innerHTML = '<option value="">Select a banned user...</option>';
+  for (const user of result.users) {
+    const option = document.createElement("option");
+    option.value = user.id;
+    option.textContent = user.username;
+    if (user.banned) {
+      option.textContent += " (BANNED)";
+      const unbanOption = document.createElement("option");
+      unbanOption.value = user.id;
+      unbanOption.textContent = user.username;
+      unbanManagerUser.appendChild(unbanOption);
+    }
+    banManagerUser.appendChild(option);
+  }
+  banManagerList.innerHTML = "";
+  for (const user of result.users) {
+    if (user.ban_count > 0 || user.banned) {
+      const li = document.createElement("li");
+      if (user.banned) {
+        li.className = "banned";
+      }
+      const expiresText = user.ban_expires_at ? new Date(user.ban_expires_at).toLocaleString() : "Never";
+      li.innerHTML = `<strong>${user.username}</strong> — Bans: ${user.ban_count || 0}${user.banned ? ` — Reason: ${user.ban_reason || "None"} — Expires: ${expiresText}` : " — Not banned"}`;
+      banManagerList.appendChild(li);
+    }
+  }
+}
+
+unbanManagerButton.addEventListener("click", async () => {
+  const userId = unbanManagerUser.value;
+  if (!userId) {
+    setStatus(unbanManagerStatus, "Select a banned user.", true);
+    return;
+  }
+  unbanManagerButton.disabled = true;
+  setStatus(unbanManagerStatus, "Unbanning user...");
+  const { ok, result } = await apiCall("POST", "/api/ban-manager/unban", { userId });
+  unbanManagerButton.disabled = false;
+  if (!ok) {
+    setStatus(unbanManagerStatus, result.error || "Could not unban user.", true);
+    return;
+  }
+  setStatus(unbanManagerStatus, `Unbanned ${result.username}.`);
+  unbanManagerUser.value = "";
+  void loadBanManagerUsers();
+});
+
+const userSearchNavButton = document.querySelector("#user-search-nav-button");
+const userSearchPage = document.querySelector("#user-search-page");
+const userSearchInput = document.querySelector("#user-search-input");
+const userSearchButton = document.querySelector("#user-search-button");
+const userSearchStatus = document.querySelector("#user-search-status");
+const userSearchResult = document.querySelector("#user-search-result");
+const userSearchDetails = document.querySelector("#user-search-details");
+
+function showUserSearchPage() {
+  hideAllPages();
+  userSearchPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+userSearchNavButton.addEventListener("click", showUserSearchPage);
+
+userSearchButton.addEventListener("click", async () => {
+  const username = userSearchInput.value.trim();
+  if (!username) {
+    setStatus(userSearchStatus, "Enter a username.", true);
+    return;
+  }
+  userSearchButton.disabled = true;
+  setStatus(userSearchStatus, "Searching...");
+  const { ok, result } = await apiCall("GET", `/api/admin/user-search?username=${encodeURIComponent(username)}`);
+  userSearchButton.disabled = false;
+  if (!ok) {
+    setStatus(userSearchStatus, result.error || "Could not find user.", true);
+    userSearchResult.hidden = true;
+    return;
+  }
+  setStatus(userSearchStatus, "");
+  userSearchResult.hidden = false;
+  const user = result.user;
+  const bannedStatus = user.banned ? `Yes - ${user.ban_reason || "No reason"} (Expires: ${user.ban_expires_at ? new Date(user.ban_expires_at).toLocaleString() : "Never"})` : "No";
+  userSearchDetails.innerHTML = `
+    <li><strong>Username:</strong> ${user.username}</li>
+    <li><strong>ID:</strong> ${user.id}</li>
+    <li><strong>Birthday:</strong> ${user.birthday || "Not set"}</li>
+    <li><strong>Gender:</strong> ${user.gender || "Not set"}</li>
+    <li><strong>Blurb:</strong> ${user.blurb || "None"}</li>
+    <li><strong>Robux:</strong> ${user.robux}</li>
+    <li><strong>Discord:</strong> ${user.discord_username || "Not linked"}</li>
+    <li><strong>Banned:</strong> ${bannedStatus}</li>
+    <li><strong>Ban Count:</strong> ${user.ban_count || 0}</li>
+    <li><strong>Created:</strong> ${new Date(user.created_at).toLocaleString()}</li>
+  `;
+});
+
+const serverStatsNavButton = document.querySelector("#server-stats-nav-button");
+const serverStatsPage = document.querySelector("#server-stats-page");
+const serverStatsList = document.querySelector("#server-stats-list");
+
+function showServerStatsPage() {
+  hideAllPages();
+  serverStatsPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadServerStats();
+}
+
+serverStatsNavButton.addEventListener("click", showServerStatsPage);
+
+async function loadServerStats() {
+  const { ok, result } = await apiCall("GET", "/api/admin/server-stats");
+  if (!ok) {
+    serverStatsList.innerHTML = `<li>Error: ${result.error || "Could not load stats."}</li>`;
+    return;
+  }
+  const stats = result.stats;
+  serverStatsList.innerHTML = `
+    <li><strong>Total Users:</strong> ${stats.totalUsers}</li>
+    <li><strong>Banned Users:</strong> ${stats.bannedUsers}</li>
+    <li><strong>Active Sessions:</strong> ${stats.activeSessions}</li>
+    <li><strong>Catalog Items:</strong> ${stats.catalogItems}</li>
+    <li><strong>Creations:</strong> ${stats.creations}</li>
+  `;
+}
+
+function hideAllPages() {
+  homeDefaultContent.hidden = true;
+  searchResultsSection.hidden = true;
+  friendsPage.hidden = true;
+  catalogPage.hidden = true;
+  itemPage.hidden = true;
+  createPage.hidden = true;
+  configurePage.hidden = true;
+  avatarPage.hidden = true;
+  adminPage.hidden = true;
+  banManagerPage.hidden = true;
+  userSearchPage.hidden = true;
+  serverStatsPage.hidden = true;
+  announcementsPage.hidden = true;
+  giveItemsPage.hidden = true;
+  resetPasswordPage.hidden = true;
+  changeUsernamePage.hidden = true;
+  auditLogPage.hidden = true;
+  massMessagePage.hidden = true;
+  maintenancePage.hidden = true;
+  userRolesPage.hidden = true;
+  reportsPage.hidden = true;
+  supportPage.hidden = true;
+}
+
+const announcementsNavButton = document.querySelector("#announcements-nav-button");
+const announcementsPage = document.querySelector("#announcements-page");
+const announcementTitle = document.querySelector("#announcement-title");
+const announcementMessage = document.querySelector("#announcement-message");
+const announcementButton = document.querySelector("#announcement-button");
+const announcementStatus = document.querySelector("#announcement-status");
+const announcementsList = document.querySelector("#announcements-list");
+
+function showAnnouncementsPage() {
+  hideAllPages();
+  announcementsPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadAnnouncements();
+}
+
+announcementsNavButton.addEventListener("click", showAnnouncementsPage);
+
+announcementButton.addEventListener("click", async () => {
+  const title = announcementTitle.value.trim();
+  const message = announcementMessage.value.trim();
+  if (!title || !message) {
+    setStatus(announcementStatus, "Title and message are required.", true);
+    return;
+  }
+  announcementButton.disabled = true;
+  setStatus(announcementStatus, "Posting announcement...");
+  const { ok, result } = await apiCall("POST", "/api/admin/announcements", { title, message });
+  announcementButton.disabled = false;
+  if (!ok) {
+    setStatus(announcementStatus, result.error || "Could not post announcement.", true);
+    return;
+  }
+  setStatus(announcementStatus, "Announcement posted!");
+  announcementTitle.value = "";
+  announcementMessage.value = "";
+  void loadAnnouncements();
+});
+
+async function loadAnnouncements() {
+  const { ok, result } = await apiCall("GET", "/api/admin/announcements");
+  if (!ok) {
+    announcementsList.innerHTML = `<li>${result.error || "Could not load announcements."}</li>`;
+    return;
+  }
+  announcementsList.innerHTML = "";
+  if (!result.announcements || result.announcements.length === 0) {
+    announcementsList.innerHTML = "<li>No announcements yet.</li>";
+    return;
+  }
+  for (const ann of result.announcements) {
+    const li = document.createElement("li");
+    li.innerHTML = `<strong>${ann.title}</strong><br/>${ann.message}<br/><small>${new Date(ann.created_at).toLocaleString()} by ${ann.author_username}</small>`;
+    announcementsList.appendChild(li);
+  }
+}
+
+const giveItemsNavButton = document.querySelector("#give-items-nav-button");
+const giveItemsPage = document.querySelector("#give-items-page");
+const giveItemsUsername = document.querySelector("#give-items-username");
+const giveItemsCode = document.querySelector("#give-items-code");
+const giveItemsButton = document.querySelector("#give-items-button");
+const giveItemsStatus = document.querySelector("#give-items-status");
+
+function showGiveItemsPage() {
+  hideAllPages();
+  giveItemsPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+giveItemsNavButton.addEventListener("click", showGiveItemsPage);
+
+giveItemsButton.addEventListener("click", async () => {
+  const username = giveItemsUsername.value.trim();
+  const code = Number(giveItemsCode.value);
+  if (!username || !code) {
+    setStatus(giveItemsStatus, "Username and item code are required.", true);
+    return;
+  }
+  giveItemsButton.disabled = true;
+  setStatus(giveItemsStatus, "Giving item...");
+  const { ok, result } = await apiCall("POST", "/api/admin/give-items", { username, code });
+  giveItemsButton.disabled = false;
+  if (!ok) {
+    setStatus(giveItemsStatus, result.error || "Could not give item.", true);
+    return;
+  }
+  setStatus(giveItemsStatus, "Item given successfully!");
+  giveItemsUsername.value = "";
+  giveItemsCode.value = "";
+});
+
+const resetPasswordNavButton = document.querySelector("#reset-password-nav-button");
+const resetPasswordPage = document.querySelector("#reset-password-page");
+const resetPasswordUsername = document.querySelector("#reset-password-username");
+const resetPasswordNew = document.querySelector("#reset-password-new");
+const resetPasswordButton = document.querySelector("#reset-password-button");
+const resetPasswordStatus = document.querySelector("#reset-password-status");
+
+function showResetPasswordPage() {
+  hideAllPages();
+  resetPasswordPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+resetPasswordNavButton.addEventListener("click", showResetPasswordPage);
+
+resetPasswordButton.addEventListener("click", async () => {
+  const username = resetPasswordUsername.value.trim();
+  const newPassword = resetPasswordNew.value.trim();
+  if (!username || !newPassword) {
+    setStatus(resetPasswordStatus, "Username and new password are required.", true);
+    return;
+  }
+  resetPasswordButton.disabled = true;
+  setStatus(resetPasswordStatus, "Resetting password...");
+  const { ok, result } = await apiCall("POST", "/api/admin/reset-password", { username, newPassword });
+  resetPasswordButton.disabled = false;
+  if (!ok) {
+    setStatus(resetPasswordStatus, result.error || "Could not reset password.", true);
+    return;
+  }
+  setStatus(resetPasswordStatus, "Password reset successfully!");
+  resetPasswordUsername.value = "";
+  resetPasswordNew.value = "";
+});
+
+const changeUsernameNavButton = document.querySelector("#change-username-nav-button");
+const changeUsernamePage = document.querySelector("#change-username-page");
+const changeUsernameCurrent = document.querySelector("#change-username-current");
+const changeUsernameNew = document.querySelector("#change-username-new");
+const changeUsernameButton = document.querySelector("#change-username-button");
+const changeUsernameStatus = document.querySelector("#change-username-status");
+
+function showChangeUsernamePage() {
+  hideAllPages();
+  changeUsernamePage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+changeUsernameNavButton.addEventListener("click", showChangeUsernamePage);
+
+changeUsernameButton.addEventListener("click", async () => {
+  const currentUsername = changeUsernameCurrent.value.trim();
+  const newUsername = changeUsernameNew.value.trim();
+  if (!currentUsername || !newUsername) {
+    setStatus(changeUsernameStatus, "Current and new usernames are required.", true);
+    return;
+  }
+  changeUsernameButton.disabled = true;
+  setStatus(changeUsernameStatus, "Changing username...");
+  const { ok, result } = await apiCall("POST", "/api/admin/change-username", { currentUsername, newUsername });
+  changeUsernameButton.disabled = false;
+  if (!ok) {
+    setStatus(changeUsernameStatus, result.error || "Could not change username.", true);
+    return;
+  }
+  setStatus(changeUsernameStatus, "Username changed successfully!");
+  changeUsernameCurrent.value = "";
+  changeUsernameNew.value = "";
+});
+
+const auditLogNavButton = document.querySelector("#audit-log-nav-button");
+const auditLogPage = document.querySelector("#audit-log-page");
+const auditLogList = document.querySelector("#audit-log-list");
+
+function showAuditLogPage() {
+  hideAllPages();
+  auditLogPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadAuditLog();
+}
+
+auditLogNavButton.addEventListener("click", showAuditLogPage);
+
+async function loadAuditLog() {
+  const { ok, result } = await apiCall("GET", "/api/admin/audit-log");
+  if (!ok) {
+    auditLogList.innerHTML = `<li>${result.error || "Could not load audit log."}</li>`;
+    return;
+  }
+  auditLogList.innerHTML = "";
+  if (!result.logs || result.logs.length === 0) {
+    auditLogList.innerHTML = "<li>No admin actions recorded yet.</li>";
+    return;
+  }
+  for (const log of result.logs) {
+    const li = document.createElement("li");
+    li.innerHTML = `<strong>${log.action}</strong> by ${log.admin_username}<br/>${log.details}<br/><small>${new Date(log.created_at).toLocaleString()}</small>`;
+    auditLogList.appendChild(li);
+  }
+}
+
+const massMessageNavButton = document.querySelector("#mass-message-nav-button");
+const massMessagePage = document.querySelector("#mass-message-page");
+const massMessageSubject = document.querySelector("#mass-message-subject");
+const massMessageBody = document.querySelector("#mass-message-body");
+const massMessageButton = document.querySelector("#mass-message-button");
+const massMessageStatus = document.querySelector("#mass-message-status");
+
+function showMassMessagePage() {
+  hideAllPages();
+  massMessagePage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+massMessageNavButton.addEventListener("click", showMassMessagePage);
+
+massMessageButton.addEventListener("click", async () => {
+  const subject = massMessageSubject.value.trim();
+  const body = massMessageBody.value.trim();
+  if (!subject || !body) {
+    setStatus(massMessageStatus, "Subject and message are required.", true);
+    return;
+  }
+  massMessageButton.disabled = true;
+  setStatus(massMessageStatus, "Sending mass message...");
+  const { ok, result } = await apiCall("POST", "/api/admin/mass-message", { subject, body });
+  massMessageButton.disabled = false;
+  if (!ok) {
+    setStatus(massMessageStatus, result.error || "Could not send mass message.", true);
+    return;
+  }
+  setStatus(massMessageStatus, `Mass message sent to ${result.sentCount || 0} users!`);
+  massMessageSubject.value = "";
+  massMessageBody.value = "";
+});
+
+const maintenanceNavButton = document.querySelector("#maintenance-nav-button");
+const maintenancePage = document.querySelector("#maintenance-page");
+const maintenanceStatusText = document.querySelector("#maintenance-status-text");
+const maintenanceToggleButton = document.querySelector("#maintenance-toggle-button");
+const maintenanceStatus = document.querySelector("#maintenance-status");
+
+function showMaintenancePage() {
+  hideAllPages();
+  maintenancePage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadMaintenanceStatus();
+}
+
+maintenanceNavButton.addEventListener("click", showMaintenancePage);
+
+async function loadMaintenanceStatus() {
+  const { ok, result } = await apiCall("GET", "/api/admin/maintenance-status");
+  if (!ok) {
+    maintenanceStatusText.textContent = result.error || "Could not load status.";
+    return;
+  }
+  maintenanceStatusText.textContent = result.maintenanceMode ? "Maintenance mode is ON" : "Maintenance mode is OFF";
+}
+
+maintenanceToggleButton.addEventListener("click", async () => {
+  maintenanceToggleButton.disabled = true;
+  setStatus(maintenanceStatus, "Toggling maintenance mode...");
+  const { ok, result } = await apiCall("POST", "/api/admin/toggle-maintenance");
+  maintenanceToggleButton.disabled = false;
+  if (!ok) {
+    setStatus(maintenanceStatus, result.error || "Could not toggle maintenance mode.", true);
+    return;
+  }
+  setStatus(maintenanceStatus, result.maintenanceMode ? "Maintenance mode enabled!" : "Maintenance mode disabled!");
+  void loadMaintenanceStatus();
+});
+
+const userRolesNavButton = document.querySelector("#user-roles-nav-button");
+const userRolesPage = document.querySelector("#user-roles-page");
+const userRolesUsername = document.querySelector("#user-roles-username");
+const promoteAdminButton = document.querySelector("#promote-admin-button");
+const demoteAdminButton = document.querySelector("#demote-admin-button");
+const userRolesStatus = document.querySelector("#user-roles-status");
+const adminList = document.querySelector("#admin-list");
+
+function showUserRolesPage() {
+  hideAllPages();
+  userRolesPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadAdminList();
+}
+
+userRolesNavButton.addEventListener("click", showUserRolesPage);
+
+promoteAdminButton.addEventListener("click", async () => {
+  const username = userRolesUsername.value.trim();
+  if (!username) {
+    setStatus(userRolesStatus, "Username is required.", true);
+    return;
+  }
+  promoteAdminButton.disabled = true;
+  setStatus(userRolesStatus, "Promoting user...");
+  const { ok, result } = await apiCall("POST", "/api/admin/promote", { username });
+  promoteAdminButton.disabled = false;
+  if (!ok) {
+    setStatus(userRolesStatus, result.error || "Could not promote user.", true);
+    return;
+  }
+  setStatus(userRolesStatus, "User promoted to admin!");
+  userRolesUsername.value = "";
+  void loadAdminList();
+});
+
+demoteAdminButton.addEventListener("click", async () => {
+  const username = userRolesUsername.value.trim();
+  if (!username) {
+    setStatus(userRolesStatus, "Username is required.", true);
+    return;
+  }
+  demoteAdminButton.disabled = true;
+  setStatus(userRolesStatus, "Demoting user...");
+  const { ok, result } = await apiCall("POST", "/api/admin/demote", { username });
+  demoteAdminButton.disabled = false;
+  if (!ok) {
+    setStatus(userRolesStatus, result.error || "Could not demote user.", true);
+    return;
+  }
+  setStatus(userRolesStatus, "User demoted from admin!");
+  userRolesUsername.value = "";
+  void loadAdminList();
+});
+
+async function loadAdminList() {
+  const { ok, result } = await apiCall("GET", "/api/admin/list");
+  if (!ok) {
+    adminList.innerHTML = `<li>${result.error || "Could not load admin list."}</li>`;
+    return;
+  }
+  adminList.innerHTML = "";
+  if (!result.admins || result.admins.length === 0) {
+    adminList.innerHTML = "<li>No admins found.</li>";
+    return;
+  }
+  for (const admin of result.admins) {
+    const li = document.createElement("li");
+    li.textContent = admin.username;
+    adminList.appendChild(li);
+  }
+}
+
+const reportsNavButton = document.querySelector("#reports-nav-button");
+const reportsPage = document.querySelector("#reports-page");
+const reportsList = document.querySelector("#reports-list");
+
+function showReportsPage() {
+  hideAllPages();
+  reportsPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadReports();
+}
+
+reportsNavButton.addEventListener("click", showReportsPage);
+
+async function loadReports() {
+  const { ok, result } = await apiCall("GET", "/api/admin/reports");
+  if (!ok) {
+    reportsList.innerHTML = `<li>${result.error || "Could not load reports."}</li>`;
+    return;
+  }
+  reportsList.innerHTML = "";
+  if (!result.reports || result.reports.length === 0) {
+    reportsList.innerHTML = "<li>No reports submitted yet.</li>";
+    return;
+  }
+  for (const report of result.reports) {
+    const li = document.createElement("li");
+    li.innerHTML = `<strong>${report.subject}</strong><br/>${report.message}<br/><small>By ${report.username} at ${new Date(report.created_at).toLocaleString()}</small>`;
+    reportsList.appendChild(li);
+  }
+}
+
+const supportPage = document.querySelector("#support-page");
+const reportSubject = document.querySelector("#report-subject");
+const reportMessage = document.querySelector("#report-message");
+const reportButton = document.querySelector("#report-button");
+const reportStatus = document.querySelector("#report-status");
+
+function showSupportPage() {
+  hideAllPages();
+  supportPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+reportButton.addEventListener("click", async () => {
+  const subject = reportSubject.value.trim();
+  const message = reportMessage.value.trim();
+  if (!subject || !message) {
+    setStatus(reportStatus, "Subject and message are required.", true);
+    return;
+  }
+  reportButton.disabled = true;
+  setStatus(reportStatus, "Submitting report...");
+  const { ok, result } = await apiCall("POST", "/api/reports", { subject, message });
+  reportButton.disabled = false;
+  if (!ok) {
+    setStatus(reportStatus, result.error || "Could not submit report.", true);
+    return;
+  }
+  setStatus(reportStatus, "Report submitted successfully!");
+  reportSubject.value = "";
+  reportMessage.value = "";
+});
 
 async function loadAdminCodes() {
   const { ok, result } = await apiCall("GET", "/api/admin/imports");
@@ -1995,14 +2638,7 @@ createFileInput.addEventListener("change", async () => {
 });
 
 function showCreatePage() {
-  homeDefaultContent.hidden = true;
-  searchResultsSection.hidden = true;
-  friendsPage.hidden = true;
-  catalogPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = true;
-  configurePage.hidden = true;
-  avatarPage.hidden = true;
+  hideAllPages();
   createPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   void loadMyCreations();
@@ -2132,14 +2768,7 @@ function openConfigurePage(creation) {
 
   showConfigurePane("basic", "Basic Settings");
 
-  homeDefaultContent.hidden = true;
-  searchResultsSection.hidden = true;
-  friendsPage.hidden = true;
-  catalogPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = true;
-  createPage.hidden = true;
-  avatarPage.hidden = true;
+  hideAllPages();
   configurePage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -2278,15 +2907,8 @@ function renderRobuxPrice(container, price) {
 }
 
 async function openItemPage(itemId) {
-  homeDefaultContent.hidden = true;
-  searchResultsSection.hidden = true;
-  friendsPage.hidden = true;
-  catalogPage.hidden = true;
-  adminPage.hidden = true;
-  avatarPage.hidden = true;
+  hideAllPages();
   itemPage.hidden = false;
-  createPage.hidden = true;
-  configurePage.hidden = true;
   itemDetail.textContent = "Loading...";
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
 
@@ -2457,8 +3079,26 @@ function renderItemDetail(item) {
 
 void initializeSession();
 
+const discordLinkOverlay = document.querySelector("#discord-link-overlay");
+const discordLinkClose = document.querySelector("#discord-link-close");
+const discordLinkCode = document.querySelector("#discord-link-code");
+const discordLinkVerify = document.querySelector("#discord-link-verify");
+const discordLinkStatus = document.querySelector("#discord-link-status");
+
+function openDiscordLinkModal() {
+  discordLinkCode.value = "";
+  discordLinkStatus.textContent = "";
+  discordLinkStatus.className = "discord-link-status";
+  discordLinkOverlay.hidden = false;
+  discordLinkCode.focus();
+}
+
+function closeDiscordLinkModal() {
+  discordLinkOverlay.hidden = true;
+}
+
 discordConnectButton.addEventListener("click", () => {
-  window.location.href = "/api/discord/connect";
+  openDiscordLinkModal();
 });
 
 discordUnlinkButton.addEventListener("click", async () => {
@@ -2478,6 +3118,41 @@ discordUnlinkButton.addEventListener("click", async () => {
     populateSettings(user);
   }
   setStatus(accountStatus, "Discord account removed.");
+});
+
+discordLinkClose.addEventListener("click", closeDiscordLinkModal);
+
+discordLinkOverlay.addEventListener("click", (event) => {
+  if (event.target === discordLinkOverlay) {
+    closeDiscordLinkModal();
+  }
+});
+
+discordLinkVerify.addEventListener("click", async () => {
+  const code = discordLinkCode.value.trim();
+  if (!code) {
+    discordLinkStatus.textContent = "Enter the 6-digit code from Discord.";
+    discordLinkStatus.className = "discord-link-status error";
+    return;
+  }
+  discordLinkVerify.disabled = true;
+  discordLinkStatus.textContent = "Verifying...";
+  discordLinkStatus.className = "discord-link-status";
+  const { ok, result } = await apiCall("POST", "/api/discord/verify-link", { code });
+  discordLinkVerify.disabled = false;
+  if (!ok) {
+    discordLinkStatus.textContent = result.error || "Could not verify code.";
+    discordLinkStatus.className = "discord-link-status error";
+    return;
+  }
+  discordLinkStatus.textContent = `Discord account linked: ${result.discordUsername}`;
+  discordLinkStatus.className = "discord-link-status success";
+  const user = await fetchMe();
+  if (user) {
+    currentUser = user;
+    populateSettings(user);
+  }
+  setTimeout(closeDiscordLinkModal, 1500);
 });
 
 function handleDiscordRedirectParam() {
@@ -2828,14 +3503,7 @@ function showAvatarPage() {
   if ((currentUser?.username || "").toLowerCase() !== "marsargo") {
     return;
   }
-  homeDefaultContent.hidden = true;
-  searchResultsSection.hidden = true;
-  friendsPage.hidden = true;
-  catalogPage.hidden = true;
-  adminPage.hidden = true;
-  itemPage.hidden = true;
-  createPage.hidden = true;
-  configurePage.hidden = true;
+  hideAllPages();
   avatarPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
   renderAvatarSubtabs("recent");
