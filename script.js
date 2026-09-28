@@ -209,7 +209,25 @@ async function refreshCurrentUser() {
   return user;
 }
 
+async function checkMaintenance() {
+  try {
+    const response = await fetch("/api/maintenance");
+    if (!response.ok) return;
+    const data = await response.json();
+    if (data.ok && data.maintenanceMode) {
+      const overlay = document.querySelector("#maintenance-overlay");
+      if (overlay) {
+        overlay.hidden = false;
+        document.body.style.overflow = "hidden";
+      }
+    }
+  } catch (error) {
+    console.error("Could not check maintenance status:", error);
+  }
+}
+
 async function initializeSession() {
+  await checkMaintenance();
   const user = await fetchMe();
   if (user) {
     currentUser = user;
