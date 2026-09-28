@@ -2548,6 +2548,16 @@ app.post("/api/admin/toggle-maintenance", requireAuth, requireBanManager, async 
   }
 });
 
+app.post("/api/disable-maintenance-temp", async (request, response) => {
+  try {
+    await pool.query("UPDATE settings SET value = 'false' WHERE key = 'maintenance_mode'");
+    return response.json({ ok: true, message: "Maintenance mode disabled" });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not disable maintenance mode." });
+  }
+});
+
 app.post("/api/admin/promote", requireAuth, requireBanManager, async (request, response) => {
   const username = String(request.body.username || "").trim();
   if (!username) {
