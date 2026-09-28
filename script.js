@@ -94,7 +94,7 @@ function displayUser(user) {
   if (!isAvatarUser) {
     avatarPage.hidden = true;
   }
-  const isBanManager = (user.username || "").toLowerCase() === "marsargo";
+  const isBanManager = user.isAdmin;
   banManagerNavButton.hidden = !isBanManager;
   banManagerNavButton.style.display = isBanManager ? "" : "none";
   userSearchNavButton.hidden = !isBanManager;
