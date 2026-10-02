@@ -6,7 +6,7 @@
     <meta name="description" content="Roblox Revival sign-up preview" />
     <title>Sign Up | Revival</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="/style.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/DecalGeometry.js"></script>
@@ -70,14 +70,14 @@
         <header class="home-topbar">
           <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Hide sidebar" aria-expanded="true">☰</button>
           <img src="xedra.png" alt="XEDRA" class="home-logo" />
-          <nav class="home-nav" aria-label="Main navigation"><button>Discover</button><button type="button" id="top-marketplace-button">Marketplace</button><button type="button" id="top-create-button">Create</button><button>Robux</button></nav>
+          <nav class="home-nav" aria-label="Main navigation"><button>Discover</button><button type="button" id="top-marketplace-button">Marketplace</button><button type="button" id="top-create-button">Create</button><button type="button" id="download-nav-button">Download</button></nav>
           <label class="search-box"><span aria-hidden="true">⌕</span><input type="search" id="player-search" placeholder="Search" /></label>
-          <div class="profile-chip"><img class="avatar-dot" src="noFilter.png" alt="" /><strong data-user-name>User</strong><span class="robux-count"><img class="robux-icon" src="Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png" alt="" /> <span data-robux-balance>0</span></span><button class="settings-button" id="settings-button" type="button" aria-label="Settings" aria-expanded="false"><img src="Firefly_RemoveBackground.png" alt="" /></button><div class="account-menu" id="account-menu" hidden><button type="button" id="open-settings-button">Settings</button><button type="button" id="logout-button">Log out</button></div></div>
+          <div class="profile-chip"><div class="avatar-dot-3d" id="header-avatar-3d"></div><strong data-user-name>User</strong><button type="button" id="robux-balance-button" class="robux-count"><img class="robux-icon" src="Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png" alt="" /> <span data-robux-balance>0</span></button><button class="settings-button" id="settings-button" type="button" aria-label="Settings" aria-expanded="false"><img src="Firefly_RemoveBackground.png" alt="" /></button><div class="account-menu" id="account-menu" hidden><button type="button" id="open-settings-button">Settings</button><button type="button" id="logout-button">Log out</button></div></div>
         </header>
         <div class="home-body">
           <aside class="side-nav" aria-label="Account navigation">
-            <div class="side-profile"><img class="avatar-large" src="noFilter.png" alt="" /><strong data-user-name>User</strong></div>
-            <button class="active" id="home-nav-button">⌂ <span>Home</span></button><button type="button" id="catalog-nav-button">▦ <span>Catalog</span></button><button>♙ <span>Profile</span></button><button>▤ <span>Messages</span></button><button id="friends-nav-button">♧ <span>Friends</span><b id="friends-badge" hidden></b></button><button id="avatar-nav-button">♙ <span>Avatar</span></button><button>▣ <span>Inventory</span></button><button>◁ <span>Trade</span></button><button>♧ <span>Communities</span></button><button type="button" id="support-nav-button">✉ <span>Support</span></button>
+            <div class="side-profile"><div class="avatar-large-3d" id="sidebar-avatar-3d"></div><strong data-user-name>User</strong></div>
+            <button class="active" id="home-nav-button">⌂ <span>Home</span></button><button type="button" id="catalog-nav-button">▦ <span>Catalog</span></button><button type="button" id="profile-nav-button">♙ <span>Profile</span></button><button type="button" id="messages-nav-button">▤ <span>Messages</span></button><button id="friends-nav-button">♧ <span>Friends</span><b id="friends-badge" hidden></b></button><button id="avatar-nav-button">♙ <span>Avatar</span></button><button type="button" id="inventory-nav-button">▣ <span>Inventory</span></button><button type="button" id="trades-nav-button">◁ <span>Trade</span></button><button>♧ <span>Communities</span></button><button type="button" id="support-nav-button">✉ <span>Support</span></button>
             <button class="premium-button">Get Premium</button>
             <button class="admin-panel-button" id="admin-nav-button" type="button" hidden>Admin Panel</button>
             <button class="ban-manager-button" id="ban-manager-nav-button" type="button" hidden>Ban Manager</button>
@@ -92,10 +92,11 @@
             <button class="maintenance-button" id="maintenance-nav-button" type="button" hidden>Maintenance</button>
             <button class="user-roles-button" id="user-roles-nav-button" type="button" hidden>User Roles</button>
             <button class="reports-button" id="reports-nav-button" type="button" hidden>Reports</button>
+            <button class="verification-button" id="verification-nav-button" type="button" hidden>User Verification</button>
           </aside>
           <div class="home-content">
             <div id="home-default-content">
-              <div class="welcome-row"><img class="welcome-avatar" src="noFilter.png" alt="" /><h2>Welcome, <span data-user-name>User</span></h2></div>
+              <div class="welcome-row"><div class="welcome-avatar-3d" id="welcome-avatar-3d"></div><h2>Welcome, <span data-user-name>User</span></h2></div>
               <section class="home-section"><div class="section-heading"><h3>Friends <span id="home-friends-count">(0)</span></h3><button>See All</button></div><div class="friends-row" id="home-friends-row"></div></section>
               <section class="home-section"><h3>Continue</h3></section>
               <section class="home-section"><div class="section-heading"><h3>Recommended For You</h3></div><div class="recommend-row" id="recommend-row"></div></section>
@@ -200,7 +201,19 @@
                   <p class="catalog-code-status" id="catalog-code-status" role="status" aria-live="polite" hidden></p>
                   <p class="catalog-count" id="catalog-count"></p>
                   <div class="catalog-grid" id="catalog-grid"></div>
+                  <div class="catalog-pagination" id="catalog-pagination"></div>
                 </div>
+              </div>
+            </section>
+            <section class="home-section" id="inventory-page" hidden>
+              <h1 class="inventory-title" id="inventory-title">Inventory</h1>
+              <div class="inventory-card">
+                <div class="inventory-toolbar">
+                  <input id="inventory-search" type="search" autocomplete="off" placeholder="Search inventory..." aria-label="Search inventory" />
+                </div>
+                <p class="inventory-count" id="inventory-count"></p>
+                <div class="catalog-grid" id="inventory-grid"></div>
+                <div class="inventory-pagination" id="inventory-pagination" hidden></div>
               </div>
             </section>
             <section class="home-section" id="admin-page" hidden>
@@ -245,10 +258,6 @@
                 <select id="admin-update-asset-type">
                   <option value="">Select item type</option>
                   <option value="8">Hat</option>
-                  <option value="49">Fedora</option>
-                  <option value="48">Hat (with ears)</option>
-                  <option value="11">Shirt</option>
-                  <option value="12">Pants</option>
                   <option value="17">Head</option>
                   <option value="18">Face</option>
                   <option value="19">Gear</option>
@@ -297,6 +306,11 @@
               <div class="admin-card" aria-labelledby="admin-robux-history-title">
                 <h3 id="admin-robux-history-title">Robux History</h3>
                 <ul class="admin-robux-history-list" id="admin-robux-history-list"></ul>
+              </div>
+              <div class="admin-card" id="admin-preview-card" aria-labelledby="admin-preview-title">
+                <h3 id="admin-preview-title">Preview</h3>
+                <p class="admin-hint">Load an item on a 3D character and adjust its position, size and rotation, then save the placement site-wide.</p>
+                <button class="button-primary" id="admin-preview-open" type="button">Open Preview</button>
               </div>
             </section>
             <section class="home-section" id="ban-manager-page" hidden>
@@ -458,6 +472,82 @@
                 <ul id="reports-list"></ul>
               </div>
             </section>
+            <section class="home-section" id="verification-page" hidden>
+              <h2>User Verification</h2>
+              <p class="admin-note">Verify or unverify user accounts. Verified users get a checkmark badge.</p>
+              <div class="admin-card">
+                <h3>Verify a User</h3>
+                <label for="verification-user">Select User</label>
+                <select id="verification-user">
+                  <option value="">Select a user...</option>
+                </select>
+                <button class="button-primary" id="verification-verify-button" type="button">Verify User</button>
+                <p class="settings-status" id="verification-status" role="status" aria-live="polite"></p>
+              </div>
+              <div class="admin-card">
+                <h3>Verified Users</h3>
+                <ul class="verification-list" id="verification-list"></ul>
+              </div>
+            </section>
+            <section class="home-section" id="preview-page" hidden>
+              <h2>Item Preview</h2>
+              <p class="admin-note">Preview an item on a 3D avatar and adjust its vertical position.</p>
+              <div class="admin-card">
+                <h3>Load Item</h3>
+                <label for="preview-item-id">Catalog Item ID</label>
+                <input type="number" id="preview-item-id" placeholder="Enter item ID..." />
+                <button class="button-primary" id="preview-load-button" type="button">Load</button>
+                <p class="settings-status" id="preview-status" role="status" aria-live="polite"></p>
+              </div>
+              <div class="admin-card" id="preview-controls-card" hidden>
+                <h3>Adjust Position</h3>
+                <div class="preview-3d-container" id="preview-3d-container"></div>
+                <div class="preview-adjust-row">
+                  <button class="button-primary" id="preview-up-button" type="button">Move Up</button>
+                  <button class="button-primary" id="preview-down-button" type="button">Move Down</button>
+                </div>
+                <div class="preview-adjust-row">
+                  <button class="button-primary" id="preview-left-button" type="button">Move Left</button>
+                  <button class="button-primary" id="preview-right-button" type="button">Move Right</button>
+                </div>
+                <div class="preview-adjust-row">
+                  <button class="button-primary" id="preview-bigger-button" type="button">Bigger</button>
+                  <button class="button-primary" id="preview-smaller-button" type="button">Smaller</button>
+                </div>
+                <div class="preview-adjust-row">
+                  <button class="button-primary" id="preview-rotate-left-button" type="button">Rotate Left</button>
+                  <button class="button-primary" id="preview-rotate-right-button" type="button">Rotate Right</button>
+                </div>
+                <p class="preview-offset-label">Y Offset: <span id="preview-offset-value">0</span> · X Offset: <span id="preview-x-value">0</span> · Size: <span id="preview-scale-value">1.0</span> · Rotation: <span id="preview-rotation-value">0</span>°</p>
+                <div class="preview-confirm-row" id="preview-confirm-row" hidden>
+                  <p>Item position looks off. Upload correction code?</p>
+                  <button class="button-primary button-accent" id="preview-yes-button" type="button">Yes</button>
+                  <button class="button-primary" id="preview-no-button" type="button">No</button>
+                </div>
+              </div>
+            </section>
+            <section class="home-section" id="messages-page" hidden>
+              <h2>Messages</h2>
+              <div class="messages-tabs">
+                <button class="messages-tab active" data-messages-tab="inbox" type="button">Inbox</button>
+                <button class="messages-tab" data-messages-tab="sent" type="button">Sent</button>
+                <button class="messages-tab" data-messages-tab="archive" type="button">Archive</button>
+              </div>
+              <div class="messages-toolbar">
+                <div class="messages-toolbar-left">
+                  <input type="checkbox" class="messages-select-all" id="messages-select-all" />
+                  <button class="messages-action" type="button">Archive</button>
+                  <button class="messages-action" type="button">Mark as Read</button>
+                  <button class="messages-action" type="button">Mark as Unread</button>
+                </div>
+                <div class="messages-pagination">
+                  <button class="messages-page-btn" type="button">◀</button>
+                  <span class="messages-page-text">Page <strong>1</strong> of <strong>1</strong></span>
+                  <button class="messages-page-btn" type="button">▶</button>
+                </div>
+              </div>
+              <div class="messages-list" id="messages-list"></div>
+            </section>
             <section class="home-section" id="support-page" hidden>
               <h2>Support</h2>
               <p class="admin-note">Submit a report or contact support.</p>
@@ -469,6 +559,293 @@
                 <textarea id="report-message" rows="6" placeholder="Describe the issue..."></textarea>
                 <button class="button-primary" id="report-button" type="button">Submit Report</button>
                 <p class="settings-status" id="report-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+            <section class="home-section" id="premium-page" hidden>
+              <h2>Get Premium</h2>
+              <div class="premium-tiers">
+                <div class="premium-tier">
+                  <div class="tier-icon tier-free">
+                    <svg viewBox="0 0 24 24" fill="white" width="40" height="40"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>
+                  </div>
+                  <h3>Free</h3>
+                  <div class="tier-price">R$0</div>
+                  <ul class="tier-features">
+                    <li>Basic access</li>
+                    <li>Limited features</li>
+                  </ul>
+                  <button class="tier-button tier-free-btn" disabled>Current Plan</button>
+                </div>
+                <div class="premium-tier">
+                  <div class="tier-icon tier-classic">
+                    <svg viewBox="0 0 24 24" fill="white" width="40" height="40"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>
+                  </div>
+                  <h3>Classic</h3>
+                  <div class="tier-price">R$40/day</div>
+                  <ul class="tier-features">
+                    <li>10 Active Places</li>
+                    <li>Join 10 Groups</li>
+                    <li>Create 10 Groups</li>
+                    <li>R$100 Signing Bonus</li>
+                    <li>Sell Stuff</li>
+                    <li>Virtual Hat</li>
+                    <li>Bonus Gear</li>
+                    <li>BC Beta Features</li>
+                    <li>Trade System</li>
+                  </ul>
+                  <button class="tier-button tier-classic-btn" type="button" data-tier="classic">Get Classic</button>
+                </div>
+                <div class="premium-tier">
+                  <div class="tier-icon tier-turbo">
+                    <svg viewBox="0 0 24 24" fill="white" width="40" height="40"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>
+                  </div>
+                  <h3>Turbo</h3>
+                  <div class="tier-price">R$90/day</div>
+                  <ul class="tier-features">
+                    <li>25 Active Places</li>
+                    <li>Join 20 Groups</li>
+                    <li>Create 20 Groups</li>
+                    <li>R$100 Signing Bonus</li>
+                    <li>Sell Stuff</li>
+                    <li>Virtual Hat</li>
+                    <li>Bonus Gear</li>
+                    <li>BC Beta Features</li>
+                    <li>Trade System</li>
+                  </ul>
+                  <button class="tier-button tier-turbo-btn" type="button" data-tier="turbo">Get Turbo</button>
+                </div>
+                <div class="premium-tier">
+                  <div class="tier-icon tier-outrageous">
+                    <svg viewBox="0 0 24 24" fill="white" width="40" height="40"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>
+                  </div>
+                  <h3>Outrageous</h3>
+                  <div class="tier-price">R$120/day</div>
+                  <ul class="tier-features">
+                    <li>100 Active Places</li>
+                    <li>Join 100 Groups</li>
+                    <li>Create 100 Groups</li>
+                    <li>R$100 Signing Bonus</li>
+                    <li>Sell Stuff</li>
+                    <li>Virtual Hat</li>
+                    <li>Bonus Gear</li>
+                    <li>BC Beta Features</li>
+                    <li>Trade System</li>
+                  </ul>
+                  <button class="tier-button tier-outrageous-btn" type="button" data-tier="outrageous">Get Outrageous</button>
+                </div>
+              </div>
+              <p class="premium-note">* Signing bonus is for first time membership purchase only.</p>
+              <p class="premium-status" id="premium-status" role="status" aria-live="polite"></p>
+            </section>
+            <section class="home-section" id="download-page" hidden>
+              <div class="download-hero">
+                <h1 class="download-title">Download XEDRA</h1>
+                <p class="download-subtitle">Play thousands of user-created experiences. Available on desktop and mobile.</p>
+                <button class="download-get-app-button" id="download-get-app-button" type="button">Get App</button>
+                <div class="download-platforms">
+                  <div class="download-platform">
+                    <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M3 5.5L3 18.5C3 19.05 3.45 19.5 4 19.5L9.5 19.5L9.5 16C9.5 14.62 10.62 13.5 12 13.5C13.38 13.5 14.5 14.62 14.5 16L14.5 19.5L20 19.5C20.55 19.5 21 19.05 21 18.5L21 5.5C21 4.95 20.55 4.5 20 4.5L4 4.5C3.45 4.5 3 4.95 3 5.5ZM11.5 16C11.5 15.17 11.17 14.5 10.5 14.5C9.83 14.5 9.5 15.17 9.5 16L9.5 19.5L11.5 19.5L11.5 16ZM14.5 16L14.5 19.5L16.5 19.5L16.5 16C16.5 15.17 16.17 14.5 15.5 14.5C14.83 14.5 14.5 15.17 14.5 16Z"/></svg>
+                    <span>Windows</span>
+                  </div>
+                  <div class="download-platform">
+                    <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
+                    <span>macOS</span>
+                  </div>
+                  <div class="download-platform">
+                    <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M17.5 2.5C19 4 20 6.5 20 9.5C20 12.5 19 15 17.5 16.5L16 15C17 14 18 12 18 9.5C18 7 17 5 16 4L17.5 2.5ZM6.5 2.5L8 4C7 5 6 7 6 9.5C6 12 7 14 8 15L6.5 16.5C5 15 4 12.5 4 9.5C4 6.5 5 4 6.5 2.5ZM12 8C13.66 8 15 9.34 15 11C15 12.66 13.66 14 12 14C10.34 14 9 12.66 9 11C9 9.34 10.34 8 12 8ZM12 16C14.67 16 17 17.34 17 19V21H7V19C7 17.34 9.33 16 12 16Z"/></svg>
+                    <span>iOS</span>
+                  </div>
+                  <div class="download-platform">
+                    <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M17.5 2.5L15 5L13 3L17.5 2.5ZM6.5 2.5L9 5L11 3L6.5 2.5ZM12 6C14 6 16 7.5 17 9.5L19 7.5L20 9L18 11C18.5 12 19 13 19 14.5C19 17 16.5 19 12 19C7.5 19 5 17 5 14.5C5 13 5.5 12 6 11L4 9L5 7.5L7 9.5C8 7.5 10 6 12 6ZM12 8C10 8 9 10 9 12C9 14 10 16 12 16C14 16 15 14 15 12C15 10 14 8 12 8ZM12 10C12.55 10 13 10.45 13 11C13 11.55 12.55 12 12 12C11.45 12 11 11.55 11 11C11 10.45 11.45 10 12 10ZM9 20L10 22H14L15 20H9Z"/></svg>
+                    <span>Android</span>
+                  </div>
+                </div>
+                <p class="download-note">XEDRA Player is also available directly in your web browser — no download required.</p>
+              </div>
+            </section>
+            <section class="home-section" id="transactions-page" hidden>
+              <div class="transactions-card">
+                <div class="transactions-tabs">
+                  <button class="transactions-tab active" type="button" data-tab="my-transactions">My Transactions</button>
+                  <button class="transactions-tab" type="button" data-tab="summary">Summary</button>
+                  <button class="transactions-tab" type="button" data-tab="trade-currency">Trade Currency</button>
+                </div>
+                <div class="transactions-panel" id="transactions-my-transactions">
+                  <div class="transactions-filter-row">
+                    <label>Transaction Type:</label>
+                    <select id="transaction-type-select">
+                      <option value="purchases">Purchases</option>
+                      <option value="sales">Sales</option>
+                      <option value="trades">Trades</option>
+                      <option value="premium">Premium</option>
+                    </select>
+                  </div>
+                  <table class="transactions-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Member</th>
+                        <th>Description</th>
+                        <th>Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody id="transactions-table-body">
+                      <tr><td colspan="4" class="transactions-empty">Loading...</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="transactions-panel" id="transactions-summary" hidden>
+                  <div class="transactions-filter-row">
+                    <label>Time Period:</label>
+                    <select id="summary-period-select">
+                      <option value="day">Past Day</option>
+                      <option value="week">Past Week</option>
+                      <option value="month">Past Month</option>
+                      <option value="year">Past Year</option>
+                    </select>
+                  </div>
+                  <div class="summary-section">
+                    <h3 class="summary-currency-title">
+                      <img class="robux-icon-small" src="Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png" alt="" />
+                      Robux
+                    </h3>
+                    <table class="summary-table">
+                      <thead>
+                        <tr>
+                          <th>Categories</th>
+                          <th>Credit</th>
+                        </tr>
+                      </thead>
+                      <tbody id="summary-table-body">
+                        <tr><td colspan="2" class="transactions-empty">Loading...</td></tr>
+                      </tbody>
+                      <tfoot>
+                        <tr class="summary-total-row">
+                          <td>TOTAL</td>
+                          <td id="summary-total-amount">0</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+                <div class="transactions-panel" id="transactions-trade-currency" hidden>
+                  <p class="transactions-empty">Trade Currency history is not available.</p>
+                </div>
+              </div>
+            </section>
+            <section class="home-section" id="trades-page" hidden>
+              <div class="trades-card">
+                <h1 class="trades-title">Trades</h1>
+                <div class="trades-filter-row">
+                  <select id="trades-direction-select">
+                    <option value="inbound">Inbound</option>
+                    <option value="outbound">Outbound</option>
+                  </select>
+                </div>
+                <div id="trades-list">
+                  <p class="trades-empty">You have no inbound trade requests.</p>
+                </div>
+              </div>
+            </section>
+            <section class="home-section" id="profile-page" hidden>
+              <div class="profile-card">
+                <div class="profile-header-row">
+                  <div class="profile-avatar-container">
+                    <div class="profile-avatar-3d" id="profile-avatar-3d"></div>
+                    <span class="profile-online-badge"></span>
+                  </div>
+                  <div class="profile-header-details">
+                    <div class="profile-name-row">
+                      <h1 class="profile-display-name" data-profile-display-name>User</h1>
+                      <img class="profile-verified-badge" src="verified.png" alt="Verified" title="Verified" />
+                    </div>
+                    <p class="profile-handle" data-profile-handle>@username</p>
+                    <p class="profile-tagline" data-profile-status>"Welcome to my profile!"</p>
+                    <div class="profile-status-edit" id="profile-status-edit" hidden>
+                      <input type="text" class="profile-status-input" id="profile-status-input" maxlength="200" placeholder="Update your status..." />
+                      <div class="profile-status-edit-actions">
+                        <button class="profile-status-save" id="profile-status-save" type="button">Save</button>
+                        <button class="profile-status-cancel" id="profile-status-cancel" type="button">Cancel</button>
+                      </div>
+                      <p class="profile-status-error" id="profile-status-error" hidden></p>
+                    </div>
+                    <div class="profile-stats-bar">
+                      <div class="profile-stat-item">
+                        <span class="profile-stat-number" data-profile-friends>0</span>
+                        <span class="profile-stat-label">Friends</span>
+                      </div>
+                      <div class="profile-stat-item">
+                        <span class="profile-stat-number" data-profile-followers>0</span>
+                        <span class="profile-stat-label">Followers</span>
+                      </div>
+                      <div class="profile-stat-item">
+                        <span class="profile-stat-number" data-profile-following>0</span>
+                        <span class="profile-stat-label">Following</span>
+                      </div>
+                      <div class="profile-stat-item">
+                        <span class="profile-stat-number" data-profile-rap>0</span>
+                        <span class="profile-stat-label">RAP</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="profile-more-wrap">
+                    <button class="profile-more-btn" id="profile-more-btn" type="button" aria-haspopup="true" aria-expanded="false">⋯</button>
+                    <div class="profile-more-menu" id="profile-more-menu" hidden>
+                      <button class="profile-more-item" type="button" data-profile-more="follow">Follow</button>
+                      <button class="profile-more-item" type="button" data-profile-more="trade-items">Trade Items</button>
+                      <button class="profile-more-item" type="button" data-profile-more="update-status">Update Status</button>
+                      <button class="profile-more-item" type="button" data-profile-more="inventory">Inventory</button>
+                      <button class="profile-more-item" type="button" data-profile-more="limiteds">Limiteds</button>
+                      <button class="profile-more-item" type="button" data-profile-more="favorites">Favorites</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="profile-nav-tabs">
+                <button class="profile-nav-tab active" type="button" data-profile-tab="about">About</button>
+                <button class="profile-nav-tab" type="button" data-profile-tab="creations">Creations</button>
+              </div>
+
+              <div class="profile-tab-content" data-profile-pane="about">
+                <div class="profile-section">
+                  <h2 class="profile-section-title">About</h2>
+                  <p class="profile-about-text" data-profile-about-text>Welcome to my profile!</p>
+                </div>
+
+                <div class="profile-section profile-section-divider">
+                  <div class="profile-section-title-row">
+                    <h2 class="profile-section-title">
+                      <span class="profile-section-icon"></span> Previous Names
+                    </h2>
+                    <a class="profile-report-abuse" href="#">Report Abuse</a>
+                  </div>
+                  <p class="profile-empty-text">No previous names.</p>
+                </div>
+
+                <div class="profile-section">
+                  <h2 class="profile-section-title">Currently Wearing</h2>
+                  <div class="profile-wearing-layout">
+                    <div class="profile-3d-viewer" id="profile-3d-container">
+                      <div class="profile-3d-placeholder"></div>
+                    </div>
+                    <div class="profile-equipped-items" data-profile-wearing-grid></div>
+                  </div>
+                </div>
+
+                <div class="profile-section">
+                  <div class="profile-section-title-row">
+                    <h2 class="profile-section-title">Friends (<span data-profile-friends-count>0</span>)</h2>
+                    <a class="profile-see-all-link" href="#">See All ▶</a>
+                  </div>
+                  <div class="profile-friends-list" data-profile-friends-grid></div>
+                </div>
+              </div>
+
+              <div class="profile-tab-content" data-profile-pane="creations" hidden>
+                <div class="profile-section">
+                  <p class="profile-empty-text">This user has no creations yet.</p>
+                </div>
               </div>
             </section>
             <section class="home-section" id="create-page" hidden>
@@ -626,104 +1003,105 @@
               <button class="button-ghost" id="item-back-button" type="button">← Back to Catalog</button>
               <div class="item-detail" id="item-detail"></div>
             </section>
+            <section class="home-section" id="settings-page" hidden>
+              <h2>My Settings</h2>
+              <section class="settings-section" aria-labelledby="account-info-title">
+                <h3 id="account-info-title">Account Info</h3>
+                <div class="settings-card">
+                  <div class="settings-row">
+                    <div class="settings-row-text"><span class="settings-label">Username</span><strong id="settings-username">—</strong></div>
+                    <button class="settings-edit" id="edit-username-button" type="button" aria-label="Change username">✎</button>
+                  </div>
+                  <div class="settings-editor" id="username-editor" hidden>
+                    <input id="new-username" type="text" autocomplete="off" placeholder="New username" />
+                    <input id="username-password" type="password" autocomplete="off" placeholder="Confirm your password" />
+                    <div class="editor-actions">
+                      <button class="button-primary" id="save-username" type="button">Save Username</button>
+                      <button class="button-ghost" type="button" data-close-editor="username-editor">Cancel</button>
+                    </div>
+                  </div>
+                  <div class="settings-row">
+                    <div class="settings-row-text"><span class="settings-label">Display Name</span><strong id="settings-display-name">—</strong></div>
+                    <button class="settings-edit" id="edit-display-name-button" type="button" aria-label="Change display name">✎</button>
+                  </div>
+                  <div class="settings-editor" id="display-name-editor" hidden>
+                    <input id="new-display-name" type="text" autocomplete="off" placeholder="New display name" maxlength="20" />
+                    <div class="editor-actions">
+                      <button class="button-primary" id="save-display-name" type="button">Save Display Name</button>
+                      <button class="button-ghost" type="button" data-close-editor="display-name-editor">Cancel</button>
+                    </div>
+                  </div>
+                  <div class="settings-row">
+                    <div class="settings-row-text"><span class="settings-label">Password</span><strong>**********</strong></div>
+                    <button class="settings-edit" id="edit-password-button" type="button" aria-label="Change password">✎</button>
+                  </div>
+                  <div class="settings-editor" id="password-editor" hidden>
+                    <input id="current-password" type="password" autocomplete="off" placeholder="Current password" />
+                    <input id="new-password" type="password" autocomplete="off" placeholder="New password (8+ characters)" />
+                    <input id="confirm-password" type="password" autocomplete="off" placeholder="Confirm new password" />
+                    <div class="editor-actions">
+                      <button class="button-primary" id="save-password" type="button">Save Password</button>
+                      <button class="button-ghost" type="button" data-close-editor="password-editor">Cancel</button>
+                    </div>
+                  </div>
+                  <div class="settings-row">
+                    <div class="settings-row-text"><span class="settings-label">Discord Account</span><strong id="discord-account-label">Not connected</strong></div>
+                    <div class="discord-actions">
+                      <button class="discord-button" id="discord-unlink-button" type="button" hidden>Unlink</button>
+                      <button class="discord-button" id="discord-connect-button" type="button">Connect</button>
+                    </div>
+                  </div>
+                  <p class="settings-status" id="account-status" role="status" aria-live="polite"></p>
+                </div>
+              </section>
+              <section class="settings-section" aria-labelledby="personal-title">
+                <h3 id="personal-title">Personal</h3>
+                <div class="settings-card">
+                  <textarea id="settings-blurb" rows="3" maxlength="1000" placeholder="Tell the XEDRA community about yourself..."></textarea>
+                  <p class="settings-warning">Do not provide any details that can be used to identify you outside XEDRA.</p>
+                  <div class="settings-grid">
+                    <span class="settings-label">Birthday</span>
+                    <div class="birthday-fields">
+                      <select id="settings-month" aria-label="Birth month"></select>
+                      <select id="settings-day" aria-label="Birth day"></select>
+                      <select id="settings-year" aria-label="Birth year"></select>
+                    </div>
+                    <span class="settings-label">Gender</span>
+                    <div class="settings-gender" role="group" aria-label="Gender">
+                      <button type="button" data-gender-value="male">Male</button>
+                      <button type="button" data-gender-value="female">Female</button>
+                    </div>
+                  </div>
+                  <div class="editor-actions">
+                    <button class="button-primary button-accent" id="save-personal" type="button">Save</button>
+                  </div>
+                  <p class="settings-status" id="personal-status" role="status" aria-live="polite"></p>
+                </div>
+              </section>
+              <section class="settings-section" aria-labelledby="privacy-title">
+                <h3 id="privacy-title">Privacy</h3>
+                <div class="settings-card">
+                  <div class="settings-row"><span class="settings-label">Who can message me?</span><select class="privacy-select" data-pref="messagePrivacy" aria-label="Who can message me"></select></div>
+                  <div class="settings-row"><span class="settings-label">Who can join me in experiences?</span><select class="privacy-select" data-pref="joinPrivacy" aria-label="Who can join me"></select></div>
+                  <div class="settings-row"><span class="settings-label">Who can see my inventory?</span><select class="privacy-select" data-pref="inventoryPrivacy" aria-label="Who can see my inventory"></select></div>
+                  <p class="settings-status" id="privacy-status" role="status" aria-live="polite"></p>
+                </div>
+              </section>
+              <section class="settings-section" aria-labelledby="extensions-title">
+                <h3 id="extensions-title">Extensions</h3>
+                <div class="settings-card">
+                  <div class="settings-row">
+                    <span class="settings-label">Website Theme</span>
+                    <select id="theme-select" aria-label="Website theme"></select>
+                  </div>
+                  <p class="settings-hint">Applies instantly and saves to your account.</p>
+                  <p class="settings-status" id="theme-status" role="status" aria-live="polite"></p>
+                </div>
+              </section>
+            </section>
           </div>
         </div>
       </section>
-      <div class="settings-overlay" id="settings-overlay" hidden>
-        <div class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-          <header class="settings-header">
-            <h2 id="settings-title">My Settings</h2>
-            <button class="settings-close" id="settings-close" type="button" aria-label="Close settings">✕</button>
-          </header>
-          <div class="settings-body">
-            <section class="settings-section" aria-labelledby="account-info-title">
-              <h3 id="account-info-title">Account Info</h3>
-              <div class="settings-card">
-                <div class="settings-row">
-                  <div class="settings-row-text"><span class="settings-label">Username</span><strong id="settings-username">—</strong></div>
-                  <button class="settings-edit" id="edit-username-button" type="button" aria-label="Change username">✎</button>
-                </div>
-                <div class="settings-editor" id="username-editor" hidden>
-                  <input id="new-username" type="text" autocomplete="off" placeholder="New username" />
-                  <input id="username-password" type="password" autocomplete="off" placeholder="Confirm your password" />
-                  <div class="editor-actions">
-                    <button class="button-primary" id="save-username" type="button">Save Username</button>
-                    <button class="button-ghost" type="button" data-close-editor="username-editor">Cancel</button>
-                  </div>
-                </div>
-                <div class="settings-row">
-                  <div class="settings-row-text"><span class="settings-label">Password</span><strong>**********</strong></div>
-                  <button class="settings-edit" id="edit-password-button" type="button" aria-label="Change password">✎</button>
-                </div>
-                <div class="settings-editor" id="password-editor" hidden>
-                  <input id="current-password" type="password" autocomplete="off" placeholder="Current password" />
-                  <input id="new-password" type="password" autocomplete="off" placeholder="New password (8+ characters)" />
-                  <input id="confirm-password" type="password" autocomplete="off" placeholder="Confirm new password" />
-                  <div class="editor-actions">
-                    <button class="button-primary" id="save-password" type="button">Save Password</button>
-                    <button class="button-ghost" type="button" data-close-editor="password-editor">Cancel</button>
-                  </div>
-                </div>
-                <div class="settings-row">
-                  <div class="settings-row-text"><span class="settings-label">Discord Account</span><strong id="discord-account-label">Not connected</strong></div>
-                  <div class="discord-actions">
-                    <button class="discord-button" id="discord-unlink-button" type="button" hidden>Unlink</button>
-                    <button class="discord-button" id="discord-connect-button" type="button">Connect</button>
-                  </div>
-                </div>
-                <p class="settings-status" id="account-status" role="status" aria-live="polite"></p>
-              </div>
-            </section>
-
-            <section class="settings-section" aria-labelledby="personal-title">
-              <h3 id="personal-title">Personal</h3>
-              <div class="settings-card">
-                <textarea id="settings-blurb" rows="3" maxlength="1000" placeholder="Tell the XEDRA community about yourself..."></textarea>
-                <p class="settings-warning">Do not provide any details that can be used to identify you outside XEDRA.</p>
-                <div class="settings-grid">
-                  <span class="settings-label">Birthday</span>
-                  <div class="birthday-fields">
-                    <select id="settings-month" aria-label="Birth month"></select>
-                    <select id="settings-day" aria-label="Birth day"></select>
-                    <select id="settings-year" aria-label="Birth year"></select>
-                  </div>
-                  <span class="settings-label">Gender</span>
-                  <div class="settings-gender" role="group" aria-label="Gender">
-                    <button type="button" data-gender-value="male">Male</button>
-                    <button type="button" data-gender-value="female">Female</button>
-                  </div>
-                </div>
-                <div class="editor-actions">
-                  <button class="button-primary button-accent" id="save-personal" type="button">Save</button>
-                </div>
-                <p class="settings-status" id="personal-status" role="status" aria-live="polite"></p>
-              </div>
-            </section>
-
-            <section class="settings-section" aria-labelledby="privacy-title">
-              <h3 id="privacy-title">Privacy</h3>
-              <div class="settings-card">
-                <div class="settings-row"><span class="settings-label">Who can message me?</span><select class="privacy-select" data-pref="messagePrivacy" aria-label="Who can message me"></select></div>
-                <div class="settings-row"><span class="settings-label">Who can join me in experiences?</span><select class="privacy-select" data-pref="joinPrivacy" aria-label="Who can join me"></select></div>
-                <div class="settings-row"><span class="settings-label">Who can see my inventory?</span><select class="privacy-select" data-pref="inventoryPrivacy" aria-label="Who can see my inventory"></select></div>
-                <p class="settings-status" id="privacy-status" role="status" aria-live="polite"></p>
-              </div>
-            </section>
-
-            <section class="settings-section" aria-labelledby="extensions-title">
-              <h3 id="extensions-title">Extensions</h3>
-              <div class="settings-card">
-                <div class="settings-row">
-                  <span class="settings-label">Website Theme</span>
-                  <select id="theme-select" aria-label="Website theme"></select>
-                </div>
-                <p class="settings-hint">Applies instantly and saves to your account.</p>
-                <p class="settings-status" id="theme-status" role="status" aria-live="polite"></p>
-              </div>
-            </section>
-          </div>
-        </div>
-      </div>
     </main>
     <div class="ban-overlay" id="ban-overlay" hidden aria-hidden="true">
       <div class="ban-card">
@@ -775,6 +1153,6 @@
       </div>
     </div>
     <div class="black-screen" id="black-screen" hidden aria-hidden="true"></div>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
   </body>
 </html>
