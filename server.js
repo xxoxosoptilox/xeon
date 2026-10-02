@@ -48,46 +48,42 @@ const PUBLIC_FILES = new Set([
   "Firefly_Gemini_Flash_remove_the_backround_284772-removebg-preview.png",
   "login-bg.jpg",
   "favicon.ico",
-  "r6.glb"
+  "r6.glb",
+  "verified.png"
 ]);
 
 app.use(cors());
 app.use(express.json());
 
-// Only ever serve the whitelist below. Serving the whole project folder would
-// expose server.js, package.json, and any .env file that lands in this directory.
-app.use(async (request, response, next) => {
+app.use((request, response, next) => {
+  if (request.path.startsWith("/api/")) {
+    return next();
+  }
   if (request.method !== "GET") {
     return next();
   }
+  const indexPath = path.join(__dirname, "index.html");
   if (request.path === "/" || request.path === "/index.html") {
-    return response.sendFile(path.join(__dirname, "index.html"));
+    return response.sendFile(indexPath, (err) => { if (err) next(err); });
   }
-  if (request.path === "/maintenance.png") {
-    return response.sendFile(path.join(__dirname, "maintenance.png"));
+  if (PUBLIC_FILES.has(request.path.slice(1))) {
+    return response.sendFile(path.join(__dirname, request.path), (err) => { if (err) next(err); });
   }
   if (request.path.startsWith("/assets/")) {
-    let fileName;
-    try {
-      fileName = path.basename(decodeURIComponent(request.path));
-    } catch {
-      return next();
-    }
-    if (/^[A-Za-z0-9_-]+\.(png|jpe?g|webp|gif)$/i.test(fileName)) {
-      return serveAssetWithFallback(response, next, fileName);
-    }
-    return next();
+    return response.sendFile(path.join(__dirname, request.path), (err) => {
+      if (!err) {
+        return;
+      }
+      if (response.headersSent) {
+        return next(err);
+      }
+      return healMissingAsset(request, response, next);
+    });
   }
-  let fileName;
-  try {
-    fileName = path.basename(decodeURIComponent(request.path));
-  } catch {
-    return next();
+  if (request.path === "/maintenance.png") {
+    return response.sendFile(path.join(__dirname, "maintenance.png"), (err) => { if (err) next(err); });
   }
-  if (PUBLIC_FILES.has(fileName)) {
-    return response.sendFile(path.join(__dirname, fileName));
-  }
-  return next();
+  return response.sendFile(indexPath, (err) => { if (err) next(err); });
 });
 
 function readCookie(request, name) {
@@ -125,7 +121,7 @@ async function createSession(response, userId) {
   setSessionCookie(response, token);
 }
 
-const USER_COLUMNS = `u.id, u.username, u.birthday::text AS birthday, u.gender, u.blurb, u.preferences, u.robux, u.discord_id, u.discord_username, u.banned, u.ban_reason, u.ban_expires_at, u.ban_count, u.created_at`;
+const USER_COLUMNS = `u.id, u.username, u.display_name, u.birthday::text AS birthday, u.gender, u.blurb, u.status, u.preferences, u.robux, u.discord_id, u.discord_username, u.banned, u.ban_reason, u.ban_expires_at, u.ban_count, u.verified, u.premium_tier, u.premium_timer_start, u.created_at`;
 const USER_SELECT = `SELECT ${USER_COLUMNS} FROM users u`;
 
 function normalizeUser(row) {
@@ -133,9 +129,11 @@ function normalizeUser(row) {
   return {
     id: row.id,
     username: row.username,
+    displayName: row.display_name || row.username,
     birthday: row.birthday,
     gender: genderMap[row.gender] || row.gender || null,
     blurb: row.blurb || "",
+    status: row.status || "",
     preferences: row.preferences || {},
     robux: row.robux,
     isAdmin: isAdminUsername(row.username),
@@ -145,6 +143,8 @@ function normalizeUser(row) {
     banReason: row.ban_reason || "",
     banExpiresAt: row.ban_expires_at,
     banCount: row.ban_count || 0,
+    premiumTier: row.premium_tier || "",
+    premiumTimerStart: row.premium_timer_start,
     createdAt: row.created_at
   };
 }
@@ -173,6 +173,26 @@ async function requireAuth(request, response, next) {
         return response.status(403).json({ error: "This account has been banned.", banned: true, ban_reason: user.ban_reason || "", ban_expires_at: user.ban_expires_at });
       }
     }
+    if (user.premium_tier && user.premium_timer_start) {
+      const premiumRobux = { classic: 40, turbo: 90, outrageous: 120 };
+      const payout = premiumRobux[user.premium_tier];
+      if (payout) {
+        const start = new Date(user.premium_timer_start);
+        const now = new Date();
+        const elapsedMs = now - start;
+        const periodsElapsed = Math.floor(elapsedMs / (24 * 60 * 60 * 1000));
+        if (periodsElapsed >= 1) {
+          const totalRobux = payout * periodsElapsed;
+          const newTimerStart = new Date(start.getTime() + periodsElapsed * 24 * 60 * 60 * 1000);
+          await pool.query(
+            "UPDATE users SET robux = robux + $1, premium_timer_start = $2 WHERE id = $3",
+            [totalRobux, newTimerStart, user.id]
+          );
+          user.robux += totalRobux;
+          user.premium_timer_start = newTimerStart;
+        }
+      }
+    }
     request.sessionToken = token;
     request.user = normalizeUser(user);
     return next();
@@ -184,10 +204,12 @@ async function requireAuth(request, response, next) {
 
 async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS blurb TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS preferences JSONB NOT NULL DEFAULT '{}'::jsonb`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS robux INTEGER NOT NULL DEFAULT 500`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_id TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_username TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_key ON users (lower(username))`);
   await pool.query(`CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
@@ -239,6 +261,10 @@ async function migrate() {
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS remote_thumbnail_url TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS accepted BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS asset_type INTEGER`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS y_offset REAL NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS x_offset REAL NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS scale_offset REAL NOT NULL DEFAULT 1`);
+  await pool.query(`ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS rotation_offset REAL NOT NULL DEFAULT 0`);
   await pool.query(`CREATE TABLE IF NOT EXISTS catalog_item_models (
     catalog_item_id INTEGER PRIMARY KEY REFERENCES catalog_items(id) ON DELETE CASCADE,
     model_data BYTEA NOT NULL,
@@ -317,6 +343,7 @@ async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_reason TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_expires_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_count INTEGER NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`CREATE TABLE IF NOT EXISTS announcements (
     id SERIAL PRIMARY KEY,
     title TEXT NOT NULL DEFAULT '',
@@ -366,6 +393,8 @@ async function migrate() {
     expires_at TIMESTAMPTZ NOT NULL DEFAULT now() + interval '10 minutes'
   )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS discord_link_codes_code_idx ON discord_link_codes (code)`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_tier TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_timer_start TIMESTAMPTZ`);
 }
 
 const ADMIN_USERNAMES = new Set(["marsargo", "3ymarr", "x_x", "roblox", "builderman", "acia", "tiffany", "cvcaineheart", "n_q"]);
@@ -393,23 +422,27 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
   return response;
 }
 
-const ASSETS_DIR = path.join(__dirname, "assets");
-
-async function saveAssetImage(assetId, url) {
+async function storeAssetThumbnail(catalogItemId, url) {
   if (!/^https?:\/\//i.test(url || "")) {
-    return null;
+    return "";
   }
-  fs.mkdirSync(ASSETS_DIR, { recursive: true });
   const response = await fetchWithTimeout(url, {}, 30000);
   const buffer = Buffer.from(await response.arrayBuffer());
   if (!buffer.length) {
-    return null;
+    return "";
   }
   const type = response.headers.get("content-type") || "";
-  const ext = type.includes("jpeg") ? "jpg" : type.includes("webp") ? "webp" : type.includes("gif") ? "gif" : "png";
-  const fileName = `${assetId}.${ext}`;
-  await fs.promises.writeFile(path.join(ASSETS_DIR, fileName), buffer);
-  return `/assets/${fileName}`;
+  const contentType = type.includes("jpeg") ? "image/jpeg" : type.includes("webp") ? "image/webp" : type.includes("gif") ? "image/gif" : "image/png";
+  await pool.query(
+    `INSERT INTO catalog_item_thumbnails (catalog_item_id, image_data, content_type)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (catalog_item_id) DO UPDATE
+     SET image_data = EXCLUDED.image_data, content_type = EXCLUDED.content_type, created_at = now()`,
+    [catalogItemId, buffer, contentType]
+  );
+  const thumbnailUrl = `/api/catalog/items/${catalogItemId}/thumbnail`;
+  await pool.query("UPDATE catalog_items SET thumbnail_url = $1 WHERE id = $2", [thumbnailUrl, catalogItemId]);
+  return thumbnailUrl;
 }
 
 async function fetchRobloxThumbnailUrl(assetId) {
@@ -421,33 +454,44 @@ async function fetchRobloxThumbnailUrl(assetId) {
   return entry && entry.imageUrl ? entry.imageUrl : "";
 }
 
-// Hosting platforms wipe files written at runtime whenever they restart, so a
-// missing local photo falls back to the original Roblox CDN copy.
-async function serveAssetWithFallback(response, next, fileName) {
-  const localPath = path.join(ASSETS_DIR, fileName);
-  if (fs.existsSync(localPath)) {
-    return response.sendFile(localPath);
+// Render's disk is wiped on every restart, so runtime-written /assets/<assetId>.<ext>
+// files vanish. When one goes missing, rebuild it from the database (or the Roblox
+// CDN as a last resort) and store it in the catalog_item_thumbnails table, which
+// survives restarts, then redirect to the permanent DB-backed URL.
+async function healMissingAsset(request, response, next) {
+  const match = request.path.match(/^\/assets\/(\d+)\.(png|jpe?g|gif|webp)$/i);
+  if (!match) {
+    return next();
   }
-  const assetId = Number.parseInt(fileName.split(".")[0], 10);
-  if (Number.isInteger(assetId)) {
-    try {
-      const stored = await pool.query(
-        "SELECT remote_thumbnail_url FROM catalog_items WHERE source_asset_id = $1 AND remote_thumbnail_url <> '' LIMIT 1",
-        [assetId]
-      );
-      let url = stored.rows[0] ? stored.rows[0].remote_thumbnail_url : "";
-      if (!url) {
-        url = await fetchRobloxThumbnailUrl(assetId);
-        if (url) {
-          await pool.query("UPDATE catalog_items SET remote_thumbnail_url = $1 WHERE source_asset_id = $2", [url, assetId]);
-        }
+  const assetId = Number(match[1]);
+  try {
+    const stored = await pool.query(
+      "SELECT id, remote_thumbnail_url FROM catalog_items WHERE source_asset_id = $1 AND accepted = true ORDER BY id LIMIT 1",
+      [assetId]
+    );
+    const item = stored.rows[0] || null;
+    if (item) {
+      const existing = await pool.query("SELECT id FROM catalog_item_thumbnails WHERE catalog_item_id = $1", [item.id]);
+      if (existing.rows.length) {
+        return response.redirect(302, `/api/catalog/items/${item.id}/thumbnail`);
       }
-      if (url) {
-        return response.redirect(302, url);
-      }
-    } catch (error) {
-      console.error("Asset fallback failed:", error.message);
     }
+    let url = item && item.remote_thumbnail_url ? item.remote_thumbnail_url : "";
+    if (!url) {
+      url = await fetchRobloxThumbnailUrl(assetId);
+      if (url) {
+        await pool.query("UPDATE catalog_items SET remote_thumbnail_url = $1 WHERE source_asset_id = $2 AND remote_thumbnail_url = ''", [url, assetId]);
+      }
+    }
+    if (url && item) {
+      await storeAssetThumbnail(item.id, url);
+      return response.redirect(302, `/api/catalog/items/${item.id}/thumbnail`);
+    }
+    if (url) {
+      return response.redirect(302, url);
+    }
+  } catch (error) {
+    console.error("Asset heal failed:", error.message);
   }
   return next();
 }
@@ -539,8 +583,121 @@ app.get("/api/me", requireAuth, (request, response) => {
   return response.json({ user: request.user });
 });
 
+const PREMIUM_TIERS = { classic: { price: 40, robux: 40 }, turbo: { price: 90, robux: 90 }, outrageous: { price: 120, robux: 120 } };
+
+app.post("/api/premium/activate", requireAuth, async (request, response) => {
+  try {
+    const tier = String(request.body?.tier || "").toLowerCase();
+    if (!PREMIUM_TIERS[tier]) {
+      return response.status(400).json({ error: "Invalid premium tier." });
+    }
+    if (request.user.premiumTier === tier) {
+      return response.status(400).json({ error: "You already have this tier." });
+    }
+    await pool.query(
+      "UPDATE users SET premium_tier = $1, premium_timer_start = NOW() WHERE id = $2",
+      [tier, request.user.id]
+    );
+    return response.json({ ok: true, tier, robuxPerDay: PREMIUM_TIERS[tier].robux });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not activate premium." });
+  }
+});
+
+app.get("/api/users/search", requireAuth, async (request, response) => {
+  const query = typeof request.query.q === "string" ? request.query.q.trim() : "";
+  if (!query) {
+    return response.json({ users: [] });
+  }
+  const idQuery = /^\d+$/.test(query) ? query : "";
+  try {
+    const escaped = query.replace(/[\\%_]/g, (character) => `\\${character}`);
+    const result = await pool.query(
+      `SELECT u.id, u.username,
+          EXISTS(SELECT 1 FROM friendships f WHERE f.user_id = $3 AND f.friend_id = u.id) AS is_friend,
+          EXISTS(SELECT 1 FROM friend_requests r WHERE r.requester_id = $3 AND r.addressee_id = u.id) AS request_sent,
+          EXISTS(SELECT 1 FROM follows fl WHERE fl.follower_id = $3 AND fl.followee_id = u.id) AS is_following
+        FROM users u
+        WHERE (u.username ILIKE $1 ESCAPE '\\' OR u.id::text = $2) AND u.id <> $3
+        ORDER BY (u.id::text = $2) DESC, u.username LIMIT 20`,
+      [`%${escaped}%`, idQuery, request.user.id]
+    );
+    return response.json({ users: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not search players." });
+  }
+});
+
+app.get("/api/users/:id", async (request, response) => {
+  const userId = parseInt(request.params.id, 10);
+  if (!userId || isNaN(userId)) {
+    return response.status(400).json({ error: "Invalid user ID." });
+  }
+  try {
+    const userResult = await pool.query(
+      `SELECT ${USER_COLUMNS} FROM users u WHERE u.id = $1`,
+      [userId]
+    );
+    if (userResult.rows.length === 0) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    const user = normalizeUser(userResult.rows[0]);
+    const countsResult = await pool.query(
+      `SELECT
+        (SELECT COUNT(*) FROM friendships WHERE user_id = $1 OR friend_id = $1) AS friends,
+        (SELECT COUNT(*) FROM follows WHERE followee_id = $1) AS followers,
+        (SELECT COUNT(*) FROM follows WHERE follower_id = $1) AS following`,
+      [userId]
+    );
+    const counts = countsResult.rows[0];
+    const friendsResult = await pool.query(
+      `SELECT u.id, u.username FROM users u
+       INNER JOIN friendships f ON (f.user_id = $1 AND f.friend_id = u.id) OR (f.friend_id = $1 AND f.user_id = u.id)
+       LIMIT 10`,
+      [userId]
+    );
+    return response.json({
+      user,
+      friends: parseInt(counts.friends, 10),
+      followers: parseInt(counts.followers, 10),
+      following: parseInt(counts.following, 10),
+      friendsList: friendsResult.rows
+    });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load profile." });
+  }
+});
+
+app.get("/api/users/:id/equipped", async (request, response) => {
+  const userId = parseInt(request.params.id, 10);
+  if (!userId || isNaN(userId)) {
+    return response.status(400).json({ error: "Invalid user ID." });
+  }
+  try {
+    const result = await pool.query(
+      `SELECT ci.id, ci.name, ci.asset_type, ci.category, ci.thumbnail_url, ci.y_offset, ci.x_offset, ci.scale_offset, ci.rotation_offset,
+              CASE WHEN model.catalog_item_id IS NULL OR model.model_format <> 'glb' THEN ''
+             ELSE '/api/catalog/items/' || ci.id || '/model' END AS model_url,
+              model.model_format
+       FROM equipped_items ei
+       JOIN catalog_items ci ON ci.id = ei.catalog_item_id
+             LEFT JOIN catalog_item_models model ON model.catalog_item_id = ci.id
+       WHERE ei.user_id = $1 AND ci.accepted = true
+       ORDER BY ei.created_at DESC`,
+      [userId]
+    );
+    return response.json({ equipped: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load equipped items." });
+  }
+});
+
 app.put("/api/me", requireAuth, async (request, response) => {
-  const { blurb, birthday, gender, preferences } = request.body || {};
+  const { blurb, status, birthday, gender, preferences } = request.body || {};
   const updates = [];
   const values = [];
   let index = 1;
@@ -548,6 +705,10 @@ app.put("/api/me", requireAuth, async (request, response) => {
   if (typeof blurb === "string") {
     updates.push(`blurb = $${index++}`);
     values.push(blurb.slice(0, 1000));
+  }
+  if (typeof status === "string") {
+    updates.push(`status = $${index++}`);
+    values.push(status.slice(0, 200));
   }
   if (typeof birthday === "string" && /^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
     updates.push(`birthday = $${index++}`);
@@ -574,30 +735,6 @@ app.put("/api/me", requireAuth, async (request, response) => {
   } catch (error) {
     console.error(error);
     return response.status(500).json({ error: "Could not save your settings." });
-  }
-});
-
-app.get("/api/users/search", requireAuth, async (request, response) => {
-  const query = typeof request.query.q === "string" ? request.query.q.trim() : "";
-  if (!query) {
-    return response.json({ users: [] });
-  }
-  try {
-    const escaped = query.replace(/[\\%_]/g, (character) => `\\${character}`);
-    const result = await pool.query(
-      `SELECT u.id, u.username,
-          EXISTS(SELECT 1 FROM friendships f WHERE f.user_id = $2 AND f.friend_id = u.id) AS is_friend,
-          EXISTS(SELECT 1 FROM friend_requests r WHERE r.requester_id = $2 AND r.addressee_id = u.id) AS request_sent,
-          EXISTS(SELECT 1 FROM follows fl WHERE fl.follower_id = $2 AND fl.followee_id = u.id) AS is_following
-        FROM users u
-        WHERE u.username ILIKE $1 ESCAPE '\\' AND u.id <> $2
-        ORDER BY u.username LIMIT 20`,
-      [`%${escaped}%`, request.user.id]
-    );
-    return response.json({ users: result.rows });
-  } catch (error) {
-    console.error(error);
-    return response.status(500).json({ error: "Could not search players." });
   }
 });
 
@@ -629,7 +766,11 @@ function normalizeCatalogItem(row) {
     salesCount: row.sales_count,
     thumbnailUrl: row.thumbnail_url,
     createdAt: row.created_at,
-    assetType: row.asset_type
+    assetType: row.asset_type,
+    yOffset: row.y_offset || 0,
+    xOffset: row.x_offset || 0,
+    scaleOffset: row.scale_offset || 1,
+    rotationOffset: row.rotation_offset || 0
   };
 }
 
@@ -706,12 +847,15 @@ app.get("/api/catalog", requireAuth, async (request, response) => {
   }[sort] || "is_featured DESC, sales_count DESC, name ASC";
 
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const CATALOG_PER_PAGE = 20;
+  const page = Math.max(1, Math.floor(Number(request.query.page)) || 1);
+  const offset = (page - 1) * CATALOG_PER_PAGE;
   try {
     const result = await pool.query(
       `SELECT id, name, category, genre, creator_name, creator_type, currency, price,
          is_limited, is_limited_unique, is_new, is_featured, is_available, sales_count,
          thumbnail_url, created_at, COUNT(*) OVER() AS total
-       FROM catalog_items ${where} ORDER BY ${orderBy} LIMIT 50`,
+       FROM catalog_items ${where} ORDER BY ${orderBy} LIMIT ${CATALOG_PER_PAGE} OFFSET ${offset}`,
       values
     );
     const total = result.rows.length ? Number(result.rows[0].total) : 0;
@@ -932,6 +1076,26 @@ app.put("/api/me/username", requireAuth, async (request, response) => {
     }
     console.error(error);
     return response.status(500).json({ error: "Could not change your username." });
+  }
+});
+
+app.put("/api/me/display-name", requireAuth, async (request, response) => {
+  const { newDisplayName } = request.body || {};
+  const displayName = typeof newDisplayName === "string" ? newDisplayName.trim() : "";
+
+  if (displayName.length < 1 || displayName.length > 20) {
+    return response.status(400).json({ error: "Display name must be 1-20 characters." });
+  }
+
+  try {
+    const result = await pool.query(
+      "UPDATE users SET display_name = $1 WHERE id = $2 RETURNING id, display_name",
+      [displayName, request.user.id]
+    );
+    return response.json({ user: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not change your display name." });
   }
 });
 
@@ -1861,10 +2025,9 @@ app.post("/api/admin/update-asset", requireAuth, requireAdmin, async (request, r
     let thumbnailUrl = row.thumbnail_url;
     if (thumbnailUrl.startsWith("http")) {
       try {
-        const localUrl = await saveAssetImage(importRow.asset_id, thumbnailUrl);
-        if (localUrl) {
-          thumbnailUrl = localUrl;
-          await pool.query("UPDATE catalog_items SET thumbnail_url = $1 WHERE id = $2", [localUrl, row.id]);
+        const storedUrl = await storeAssetThumbnail(row.id, thumbnailUrl);
+        if (storedUrl) {
+          thumbnailUrl = storedUrl;
         }
       } catch (error) {
         console.error("Asset image download failed:", error.message);
@@ -2333,6 +2496,58 @@ app.post("/api/ban-manager/unban", requireAuth, requireBanManager, async (reques
   }
 });
 
+app.get("/api/verification/users", requireAuth, requireAdmin, async (request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, username, verified FROM users WHERE username != 'marsargo' ORDER BY username`
+    );
+    return response.json({ ok: true, users: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load users." });
+  }
+});
+
+app.post("/api/verification/verify", requireAuth, requireAdmin, async (request, response) => {
+  const { userId } = request.body || {};
+  if (!userId) {
+    return response.status(400).json({ error: "User ID is required." });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE users SET verified = true WHERE id = $1 RETURNING username`,
+      [userId]
+    );
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    return response.json({ ok: true, username: result.rows[0].username });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not verify user." });
+  }
+});
+
+app.post("/api/verification/unverify", requireAuth, requireAdmin, async (request, response) => {
+  const { userId } = request.body || {};
+  if (!userId) {
+    return response.status(400).json({ error: "User ID is required." });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE users SET verified = false WHERE id = $1 RETURNING username`,
+      [userId]
+    );
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "User not found." });
+    }
+    return response.json({ ok: true, username: result.rows[0].username });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not unverify user." });
+  }
+});
+
 app.get("/api/admin/user-search", requireAuth, requireBanManager, async (request, response) => {
   const { username } = request.query || {};
   if (!username || typeof username !== "string") {
@@ -2429,7 +2644,10 @@ app.post("/api/admin/give-items", requireAuth, requireBanManager, async (request
       return response.status(404).json({ error: "Item not found." });
     }
     const itemId = itemResult.rows[0].catalog_item_id;
-    await pool.query("INSERT INTO user_items (user_id, catalog_item_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [userId, itemId]);
+    const existing = await pool.query("SELECT 1 FROM item_ownership WHERE user_id = $1 AND catalog_item_id = $2", [userId, itemId]);
+    if (!existing.rows[0]) {
+      await pool.query("INSERT INTO item_ownership (user_id, catalog_item_id) VALUES ($1, $2)", [userId, itemId]);
+    }
     await logAudit("give-items", request.user.username, `Gave item code ${code} to ${username}`);
     return response.json({ ok: true });
   } catch (error) {
@@ -2548,26 +2766,6 @@ app.post("/api/admin/toggle-maintenance", requireAuth, requireBanManager, async 
   }
 });
 
-app.post("/api/disable-maintenance-temp", async (request, response) => {
-  try {
-    await pool.query("UPDATE settings SET value = 'false' WHERE key = 'maintenance_mode'");
-    return response.json({ ok: true, message: "Maintenance mode disabled" });
-  } catch (error) {
-    console.error(error);
-    return response.status(500).json({ error: "Could not disable maintenance mode." });
-  }
-});
-
-app.post("/api/reset-robux-temp", async (request, response) => {
-  try {
-    const result = await pool.query("UPDATE users SET robux = 500");
-    return response.json({ ok: true, message: `Reset ${result.rowCount} users to 500 Robux` });
-  } catch (error) {
-    console.error(error);
-    return response.status(500).json({ error: "Could not reset Robux." });
-  }
-});
-
 app.post("/api/admin/promote", requireAuth, requireBanManager, async (request, response) => {
   const username = String(request.body.username || "").trim();
   if (!username) {
@@ -2664,10 +2862,14 @@ app.get("/api/catalog/:id", requireAuth, async (request, response) => {
   }
   try {
     const result = await pool.query(
-      `SELECT id, name, description, category, genre, creator_name, creator_type, currency, price,
-         rap, stock, is_limited, is_limited_unique, is_new, is_featured, is_available, sales_count,
-         thumbnail_url, source_asset_id, created_at
-       FROM catalog_items WHERE id = $1`,
+      `SELECT ci.id, ci.name, ci.description, ci.category, ci.genre, ci.creator_name, ci.creator_type, ci.currency, ci.price,
+         ci.rap, ci.stock, ci.is_limited, ci.is_limited_unique, ci.is_new, ci.is_featured, ci.is_available, ci.sales_count,
+         ci.thumbnail_url, ci.source_asset_id, ci.asset_type, ci.y_offset, ci.x_offset, ci.scale_offset, ci.rotation_offset, ci.created_at,
+         CASE WHEN model.catalog_item_id IS NULL OR model.model_format <> 'glb' THEN ''
+         ELSE '/api/catalog/items/' || ci.id || '/model' END AS model_url
+       FROM catalog_items ci
+       LEFT JOIN catalog_item_models model ON model.catalog_item_id = ci.id
+       WHERE ci.id = $1`,
       [id]
     );
     const row = result.rows[0];
@@ -2685,12 +2887,50 @@ app.get("/api/catalog/:id", requireAuth, async (request, response) => {
         rap: row.rap,
         stock: row.stock,
         sourceAssetId: row.source_asset_id,
+        modelUrl: row.model_url,
         isOwned: Boolean(ownedResult.rows[0])
       }
     });
   } catch (error) {
     console.error(error);
     return response.status(500).json({ error: "Could not load the item." });
+  }
+});
+
+app.patch("/api/admin/catalog-items/:id/placement", requireAuth, requireAdmin, async (request, response) => {
+  const id = Number(request.params.id);
+  const body = request.body || {};
+  const yOffset = Number(body.yOffset);
+  const xOffset = Number(body.xOffset);
+  const scaleOffset = Number(body.scaleOffset);
+  const rotationOffset = Number(body.rotationOffset);
+  if (!Number.isInteger(id) || id < 1) {
+    return response.status(400).json({ error: "A valid item is required." });
+  }
+  if (!Number.isFinite(yOffset) || Math.abs(yOffset) > 50) {
+    return response.status(400).json({ error: "A valid Y offset is required." });
+  }
+  if (!Number.isFinite(xOffset) || Math.abs(xOffset) > 50) {
+    return response.status(400).json({ error: "A valid X offset is required." });
+  }
+  if (!Number.isFinite(scaleOffset) || scaleOffset <= 0 || scaleOffset > 20) {
+    return response.status(400).json({ error: "A valid size is required." });
+  }
+  if (!Number.isFinite(rotationOffset) || Math.abs(rotationOffset) > 360) {
+    return response.status(400).json({ error: "A valid rotation is required." });
+  }
+  try {
+    const result = await pool.query(
+      "UPDATE catalog_items SET y_offset = $1, x_offset = $2, scale_offset = $3, rotation_offset = $4 WHERE id = $5 RETURNING id, y_offset, x_offset, scale_offset, rotation_offset",
+      [yOffset, xOffset, scaleOffset, rotationOffset, id]
+    );
+    if (!result.rows[0]) {
+      return response.status(404).json({ error: "Item not found." });
+    }
+    return response.json({ id: result.rows[0].id, yOffset: result.rows[0].y_offset, xOffset: result.rows[0].x_offset, scaleOffset: result.rows[0].scale_offset, rotationOffset: result.rows[0].rotation_offset });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not save the placement." });
   }
 });
 
@@ -3145,11 +3385,209 @@ app.get("/api/avatar/owned", requireAuth, async (request, response) => {
   }
 });
 
+app.get("/api/inventory", requireAuth, async (request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT ci.id, ci.name, ci.category, ci.creator_name, ci.creator_type, ci.currency, ci.price,
+              ci.is_limited, ci.is_limited_unique, ci.is_new, ci.is_available, ci.thumbnail_url,
+              ci.asset_type, ci.y_offset, ci.x_offset, ci.scale_offset, ci.rotation_offset, ci.created_at,
+              MAX(io.created_at) AS acquired_at
+       FROM item_ownership io
+       JOIN catalog_items ci ON ci.id = io.catalog_item_id
+       WHERE io.user_id = $1 AND ci.accepted = true
+       GROUP BY ci.id
+       ORDER BY acquired_at DESC`,
+      [request.user.id]
+    );
+    return response.json({
+      items: result.rows.map((row) => ({ ...normalizeCatalogItem(row), acquiredAt: row.acquired_at }))
+    });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load inventory." });
+  }
+});
+
+app.get("/api/transactions", requireAuth, async (request, response) => {
+  try {
+    const type = request.query.type || "purchases";
+    let query = "";
+    let values = [request.user.id];
+
+    if (type === "purchases") {
+      query = `SELECT io.created_at AS date, 'Catalog' AS member, ci.name AS description, -io.price_paid AS amount
+               FROM item_ownership io
+               JOIN catalog_items ci ON ci.id = io.catalog_item_id
+               WHERE io.user_id = $1
+               ORDER BY io.created_at DESC
+               LIMIT 50`;
+    } else if (type === "sales") {
+      query = `SELECT io.created_at AS date, 'User' AS member, ci.name AS description, io.price_paid AS amount
+               FROM item_ownership io
+               JOIN catalog_items ci ON ci.id = io.catalog_item_id
+               WHERE io.seller_id = $1
+               ORDER BY io.created_at DESC
+               LIMIT 50`;
+    } else if (type === "trades") {
+      query = `SELECT created_at AS date, 'Trade' AS member, 'Trade transaction' AS description, 0 AS amount
+               FROM item_ownership
+               WHERE user_id = $1
+               ORDER BY created_at DESC
+               LIMIT 50`;
+    } else if (type === "premium") {
+      query = `SELECT created_at AS date, 'XEDRA' AS member, 'Premium subscription' AS description, -40 AS amount
+               FROM users
+               WHERE id = $1 AND premium_tier IS NOT NULL
+               LIMIT 50`;
+    }
+
+    const result = await pool.query(query, values);
+    return response.json({
+      transactions: result.rows.map((row) => ({
+        date: row.date,
+        member: row.member,
+        description: row.description,
+        amount: row.amount
+      }))
+    });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load transactions." });
+  }
+});
+
+app.get("/api/transactions/summary", requireAuth, async (request, response) => {
+  try {
+    const period = request.query.period || "day";
+    let intervalClause = "INTERVAL '1 day'";
+    if (period === "week") {
+      intervalClause = "INTERVAL '7 days'";
+    } else if (period === "month") {
+      intervalClause = "INTERVAL '30 days'";
+    } else if (period === "year") {
+      intervalClause = "INTERVAL '365 days'";
+    }
+
+    const result = await pool.query(
+      `SELECT
+        COALESCE(SUM(CASE WHEN io.price_paid > 0 THEN io.price_paid ELSE 0 END), 0) AS premium_stipend,
+        COALESCE(SUM(CASE WHEN io.price_paid < 0 THEN -io.price_paid ELSE 0 END), 0) AS sale_of_goods,
+        0 AS currency_purchase,
+        0 AS trade_system_trades,
+        0 AS pending_robux,
+        0 AS group_payouts,
+        0 AS premium_payouts,
+        0 AS premium_payouts_from_groups
+       FROM item_ownership io
+       WHERE io.user_id = $1 AND io.created_at >= now() - ${intervalClause}`,
+      [request.user.id]
+    );
+
+    const row = result.rows[0];
+    const categories = [
+      { name: "Premium Stipend", credit: row.premium_stipend },
+      { name: "Sale of Goods", credit: row.sale_of_goods },
+      { name: "Currency Purchase", credit: row.currency_purchase },
+      { name: "Trade System Trades", credit: row.trade_system_trades },
+      { name: "Pending Robux", credit: row.pending_robux },
+      { name: "Group Payouts", credit: row.group_payouts },
+      { name: "Premium Payouts", credit: row.premium_payouts },
+      { name: "Premium Payouts from Group(s)", credit: row.premium_payouts_from_groups }
+    ];
+
+    return response.json({ categories });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load summary." });
+  }
+});
+
+app.get("/api/trades", requireAuth, async (request, response) => {
+  try {
+    const direction = request.query.direction || "inbound";
+    let query = "";
+    let values = [request.user.id];
+
+    if (direction === "inbound") {
+      query = `SELECT t.id, t.from_user_id, u.username, t.created_at, t.status,
+                      json_agg(json_build_object('id', ci.id, 'name', ci.name, 'thumbnail_url', ci.thumbnail_url)) AS items
+               FROM trades t
+               JOIN users u ON u.id = t.from_user_id
+               JOIN trade_items ti ON ti.trade_id = t.id
+               JOIN catalog_items ci ON ci.id = ti.catalog_item_id
+               WHERE t.to_user_id = $1 AND t.status = 'pending'
+               GROUP BY t.id, u.username
+               ORDER BY t.created_at DESC`;
+    } else {
+      query = `SELECT t.id, t.to_user_id, u.username, t.created_at, t.status,
+                      json_agg(json_build_object('id', ci.id, 'name', ci.name, 'thumbnail_url', ci.thumbnail_url)) AS items
+               FROM trades t
+               JOIN users u ON u.id = t.to_user_id
+               JOIN trade_items ti ON ti.trade_id = t.id
+               JOIN catalog_items ci ON ci.id = ti.catalog_item_id
+               WHERE t.from_user_id = $1
+               GROUP BY t.id, u.username
+               ORDER BY t.created_at DESC`;
+    }
+
+    const result = await pool.query(query, values);
+    return response.json({
+      trades: result.rows.map((row) => ({
+        id: row.id,
+        username: row.username,
+        created_at: row.created_at,
+        status: row.status,
+        items: row.items || []
+      }))
+    });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Could not load trades." });
+  }
+});
+
+app.post("/api/trades/action", requireAuth, async (request, response) => {
+  try {
+    const { trade_id, action } = request.body;
+    if (!trade_id || !action) {
+      return response.status(400).json({ error: "Missing trade_id or action." });
+    }
+
+    const trade = await pool.query("SELECT * FROM trades WHERE id = $1", [trade_id]);
+    if (trade.rows.length === 0) {
+      return response.status(404).json({ error: "Trade not found." });
+    }
+
+    const tradeRow = trade.rows[0];
+    if (action === "accept") {
+      if (tradeRow.to_user_id !== request.user.id) {
+        return response.status(403).json({ error: "Not authorized to accept this trade." });
+      }
+      await pool.query("UPDATE trades SET status = 'accepted' WHERE id = $1", [trade_id]);
+    } else if (action === "decline" || action === "cancel") {
+      if (action === "decline" && tradeRow.to_user_id !== request.user.id) {
+        return response.status(403).json({ error: "Not authorized to decline this trade." });
+      }
+      if (action === "cancel" && tradeRow.from_user_id !== request.user.id) {
+        return response.status(403).json({ error: "Not authorized to cancel this trade." });
+      }
+      await pool.query("UPDATE trades SET status = 'declined' WHERE id = $1", [trade_id]);
+    } else {
+      return response.status(400).json({ error: "Invalid action." });
+    }
+
+    return response.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Trade action failed." });
+  }
+});
+
 app.get("/api/avatar/equipped", requireAuth, async (request, response) => {
   try {
     const result = await pool.query(
       `SELECT ei.catalog_item_id,
-              ci.name, ci.category, ci.asset_type, ci.thumbnail_url, model.model_format,
+              ci.name, ci.category, ci.asset_type, ci.thumbnail_url, ci.y_offset, ci.x_offset, ci.scale_offset, ci.rotation_offset, model.model_format,
                   CASE WHEN model.catalog_item_id IS NULL OR model.model_format <> 'glb' THEN ''
              ELSE '/api/catalog/items/' || ci.id || '/model' END AS model_url
        FROM equipped_items ei
@@ -3504,9 +3942,9 @@ function startDiscordBot() {
           if (!itemResult.rows[0]) return message.reply(`No item with code **${code}**.`);
           const userId = userResult.rows[0].id;
           const itemId = itemResult.rows[0].catalog_item_id;
-          const existing = await pool.query("SELECT id FROM user_items WHERE user_id = $1 AND catalog_item_id = $2", [userId, itemId]);
+          const existing = await pool.query("SELECT 1 FROM item_ownership WHERE user_id = $1 AND catalog_item_id = $2", [userId, itemId]);
           if (existing.rows[0]) return message.reply(`**${userResult.rows[0].username}** already owns that item.`);
-          await pool.query("INSERT INTO user_items (user_id, catalog_item_id) VALUES ($1, $2)", [userId, itemId]);
+          await pool.query("INSERT INTO item_ownership (user_id, catalog_item_id) VALUES ($1, $2)", [userId, itemId]);
           return message.reply(`Gave item (code ${code}) to **${userResult.rows[0].username}**.`);
         }
         case "reset-pass": {
