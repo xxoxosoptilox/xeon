@@ -3647,6 +3647,47 @@ app.post("/api/avatar/unequip", requireAuth, async (request, response) => {
   }
 });
 
+app.get("/api/admin/migrate-thumbnails", requireAuth, requireAdmin, async (request, response) => {
+  try {
+    const items = await pool.query(
+      "SELECT id, source_asset_id, remote_thumbnail_url FROM catalog_items WHERE accepted = true"
+    );
+    let healed = 0;
+    let skipped = 0;
+    for (const item of items.rows) {
+      const existing = await pool.query(
+        "SELECT catalog_item_id FROM catalog_item_thumbnails WHERE catalog_item_id = $1",
+        [item.id]
+      );
+      if (existing.rows.length) {
+        skipped++;
+        continue;
+      }
+      let url = item.remote_thumbnail_url || "";
+      if (!url) {
+        url = await fetchRobloxThumbnailUrl(item.source_asset_id);
+        if (url) {
+          await pool.query(
+            "UPDATE catalog_items SET remote_thumbnail_url = $1 WHERE id = $2",
+            [url, item.id]
+          );
+        }
+      }
+      if (url) {
+        await storeAssetThumbnail(item.id, url);
+        healed++;
+      }
+    }
+    const updateResult = await pool.query(
+      "UPDATE catalog_items SET thumbnail_url = '/api/catalog/items/' || id || '/thumbnail' WHERE thumbnail_url LIKE '/assets/%'"
+    );
+    return response.json({ healed, skipped, updated: updateResult.rowCount });
+  } catch (error) {
+    console.error("Thumbnail migration failed:", error);
+    return response.status(500).json({ error: "Migration failed." });
+  }
+});
+
 migrate()
   .then(() => {
     app.listen(port, () => {
