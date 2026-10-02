@@ -16,6 +16,7 @@ const settingsButton = document.querySelector("#settings-button");
 const accountMenu = document.querySelector("#account-menu");
 const logoutButton = document.querySelector("#logout-button");
 const openSettingsButton = document.querySelector("#open-settings-button");
+const premiumButton = document.querySelector(".premium-button");
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const THEMES = { xeon: "Xeon Theme", dark2016: "Dark (2016)", modern: "Modern Light", midnight: "Midnight" };
@@ -24,14 +25,134 @@ const PRIVACY_OPTIONS = [["everyone", "Everyone"], ["friends", "Friends"], ["nob
 let currentUser = null;
 let selectedGender = null;
 
-const settingsOverlay = document.querySelector("#settings-overlay");
-const settingsCloseButton = document.querySelector("#settings-close");
+const ROUTES = {
+  "/": async () => { hideAllPages(); homeDefaultContent.hidden = false; await initWelcomePortrait(); },
+  "/login": showLoginPage,
+  "/signup": showSignupPage,
+  "/friends": showFriendsPage,
+  "/catalog": showCatalogPage,
+  "/inventory": showInventoryPage,
+  "/profile": () => showProfilePage(),
+  "/messages": () => { hideAllPages(); messagesPage.hidden = false; homeScreen.scrollTo({ top: 0, behavior: "smooth" }); },
+  "/avatar": showAvatarPage,
+  "/create": showCreatePage,
+  "/settings": showSettingsPage,
+  "/premium": showPremiumPage,
+  "/download": showDownloadPage,
+  "/transactions": showTransactionsPage,
+  "/trades": showTradesPage,
+  "/support": showSupportPage,
+  "/search": () => {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q") || "";
+    playerSearchInput.value = q;
+    void runPlayerSearch(q);
+  },
+  "/admin": () => requireAdmin(showAdminPage),
+  "/admin/bans": () => requireAdmin(showBanManagerPage),
+  "/admin/users": () => requireAdmin(showUserSearchPage),
+  "/admin/stats": () => requireAdmin(showServerStatsPage),
+  "/admin/announcements": () => requireAdmin(showAnnouncementsPage),
+  "/admin/give-items": () => requireAdmin(showGiveItemsPage),
+  "/admin/reset-password": () => requireAdmin(showResetPasswordPage),
+  "/admin/change-username": () => requireAdmin(showChangeUsernamePage),
+  "/admin/audit-log": () => requireAdmin(showAuditLogPage),
+  "/admin/mass-message": () => requireAdmin(showMassMessagePage),
+  "/admin/maintenance": () => requireAdmin(showMaintenancePage),
+  "/admin/user-roles": () => requireAdmin(showUserRolesPage),
+  "/admin/reports": () => requireAdmin(showReportsPage),
+  "/admin/verification": () => requireAdmin(showVerificationPage),
+  "/admin/preview": () => requireAdmin(showPreviewPage),
+};
+
+function showLoginPage() {
+  if (currentUser) {
+    navigateTo("/");
+    return;
+  }
+  signupCard.hidden = true;
+  loginCard.hidden = false;
+  blackScreen.hidden = true;
+  homeScreen.hidden = true;
+  hideAllPages();
+}
+
+function showSignupPage() {
+  if (currentUser) {
+    navigateTo("/");
+    return;
+  }
+  signupCard.hidden = false;
+  loginCard.hidden = true;
+  blackScreen.hidden = true;
+  homeScreen.hidden = true;
+  hideAllPages();
+}
+
+function requireAdmin(showFn) {
+  if (!currentUser) {
+    navigateTo("/login");
+    return;
+  }
+  if (!currentUser.isAdmin) {
+    navigateTo("/");
+    return;
+  }
+  showFn();
+}
+
+function navigateTo(path) {
+  history.pushState({ path }, "", path);
+  handleRoute();
+}
+
+function handleRoute() {
+  const path = window.location.pathname;
+
+  // Public routes that don't require auth
+  const publicRoutes = ["/", "/login", "/signup"];
+  const isPublicRoute = publicRoutes.includes(path) || path.startsWith("/search");
+
+  // If not logged in and trying to access protected route, redirect to login
+  if (!currentUser && !isPublicRoute) {
+    if (path !== "/login") {
+      history.replaceState({ path }, "", "/login");
+    }
+    showLoginPage();
+    return;
+  }
+
+  const showFn = ROUTES[path];
+  if (showFn) {
+    showFn();
+  } else if (path.startsWith("/profile/")) {
+    const userId = path.split("/")[2];
+    showProfilePage(userId);
+  } else if (path.startsWith("/item/")) {
+    const itemId = path.split("/")[2];
+    openItemPage(itemId);
+  } else {
+    hideAllPages();
+    homeDefaultContent.hidden = false;
+  }
+}
+
+window.addEventListener("popstate", handleRoute);
+
+const settingsPage = document.querySelector("#settings-page");
+const premiumStatus = document.querySelector("#premium-status");
+const premiumPage = document.querySelector("#premium-page");
 const settingsUsername = document.querySelector("#settings-username");
+const settingsDisplayName = document.querySelector("#settings-display-name");
 const editUsernameButton = document.querySelector("#edit-username-button");
 const usernameEditor = document.querySelector("#username-editor");
 const newUsernameInput = document.querySelector("#new-username");
 const usernamePasswordInput = document.querySelector("#username-password");
 const saveUsernameButton = document.querySelector("#save-username");
+const editDisplayNameButton = document.querySelector("#edit-display-name-button");
+const displayNameEditor = document.querySelector("#display-name-editor");
+const newDisplayNameInput = document.querySelector("#new-display-name");
+const saveDisplayNameButton = document.querySelector("#save-display-name");
 const editPasswordButton = document.querySelector("#edit-password-button");
 const passwordEditor = document.querySelector("#password-editor");
 const currentPasswordInput = document.querySelector("#current-password");
@@ -94,7 +215,7 @@ function displayUser(user) {
   if (!isAvatarUser) {
     avatarPage.hidden = true;
   }
-  const isBanManager = user.isAdmin;
+  const isBanManager = user.isAdmin && (user.username || "").toLowerCase() === "marsargo";
   banManagerNavButton.hidden = !isBanManager;
   banManagerNavButton.style.display = isBanManager ? "" : "none";
   userSearchNavButton.hidden = !isBanManager;
@@ -119,6 +240,10 @@ function displayUser(user) {
   userRolesNavButton.style.display = isBanManager ? "" : "none";
   reportsNavButton.hidden = !isBanManager;
   reportsNavButton.style.display = isBanManager ? "" : "none";
+  verificationNavButton.hidden = !isBanManager;
+  verificationNavButton.style.display = isBanManager ? "" : "none";
+  adminPreviewCard.hidden = !isBanManager;
+  adminPreviewCard.style.display = isBanManager ? "" : "none";
   if (!isBanManager) {
     banManagerPage.hidden = true;
     userSearchPage.hidden = true;
@@ -132,6 +257,8 @@ function displayUser(user) {
     maintenancePage.hidden = true;
     userRolesPage.hidden = true;
     reportsPage.hidden = true;
+    verificationPage.hidden = true;
+    previewPage.hidden = true;
   }
   applyTheme(user.preferences && user.preferences.theme);
   void loadHomeFriends();
@@ -164,7 +291,10 @@ function showHomeFor(username) {
   displayUser(currentUser);
   localStorage.setItem("xedraUsername", username.trim() || "User");
   openHomeScreen();
-  void refreshCurrentUser();
+  void refreshCurrentUser().then(async () => {
+    await initSmallAvatars();
+    navigateTo("/");
+  });
 }
 
 function restoreHomeScreen() {
@@ -178,6 +308,7 @@ function restoreHomeScreen() {
   loginCard.hidden = true;
   blackScreen.hidden = true;
   homeScreen.hidden = false;
+  void initSmallAvatars();
 }
 
 async function fetchMe() {
@@ -215,6 +346,10 @@ async function checkMaintenance() {
     if (!response.ok) return;
     const data = await response.json();
     if (data.ok && data.maintenanceMode) {
+      const user = await fetchMe();
+      if (user && user.username && user.username.toLowerCase() === "marsargo") {
+        return;
+      }
       const overlay = document.querySelector("#maintenance-overlay");
       if (overlay) {
         overlay.hidden = false;
@@ -233,14 +368,18 @@ async function initializeSession() {
     currentUser = user;
     displayUser(user);
     enterHomeInstant();
+    handleRoute();
+    await initSmallAvatars();
     return;
   }
   if (user === null) {
     localStorage.removeItem("xedraUsername");
     applyTheme("xeon");
+    handleRoute();
     return;
   }
   restoreHomeScreen();
+  handleRoute();
 }
 
 form.addEventListener("submit", (event) => {
@@ -304,11 +443,12 @@ function setView(view) {
   loginCard.hidden = !showLogin;
   loginButton.textContent = showLogin ? "Sign Up" : "Log In";
   loginButton.dataset.action = showLogin ? "signup" : "login";
+  history.replaceState({ path: `/${view}` }, "", `/${view}`);
 }
 
 loginButton.addEventListener("click", () => {
   const openingLogin = loginCard.hidden;
-  setView(openingLogin ? "login" : "signup");
+  navigateTo(openingLogin ? "/login" : "/signup");
 });
 
 loginForm.addEventListener("submit", (event) => {
@@ -353,7 +493,7 @@ document.querySelectorAll('[data-action="forgot"], [data-action="code"], [data-a
 });
 
 document.querySelector('[data-action="signup"]').addEventListener("click", () => {
-  setView("signup");
+  navigateTo("/signup");
 });
 
 document.querySelectorAll('[data-action="terms"], [data-action="privacy"]').forEach((link) => {
@@ -387,9 +527,7 @@ logoutButton.addEventListener("click", async () => {
   homeScreen.hidden = true;
   blackScreen.hidden = true;
   applyTheme("xeon");
-  loginCard.hidden = false;
-  signupCard.hidden = true;
-  setView("login");
+  navigateTo("/login");
   document.querySelector("#login-username").value = "";
   document.querySelector("#login-password").value = "";
 });
@@ -412,16 +550,16 @@ function createPlayerResultCard(user) {
 
   const head = document.createElement("div");
   head.className = "player-result-head";
-  const avatar = document.createElement("img");
-  avatar.src = "noFilter.png";
-  avatar.alt = "";
+  const avatarContainer = document.createElement("div");
+  avatarContainer.className = "player-avatar-3d";
+  avatarContainer.id = `player-avatar-${user.id}`;
   const text = document.createElement("div");
   const name = document.createElement("strong");
   name.textContent = user.username;
   const status = document.createElement("span");
   status.textContent = "Offline";
   text.append(name, status);
-  head.append(avatar, text);
+  head.append(avatarContainer, text);
 
   const actions = document.createElement("div");
   actions.className = "player-result-actions";
@@ -475,6 +613,12 @@ function createPlayerResultCard(user) {
 
   actions.append(addButton, followButton);
   card.append(head, actions);
+
+  card.addEventListener("click", (event) => {
+    if (event.target.closest("button")) return;
+    navigateTo(`/profile/${user.id}`);
+  });
+
   return card;
 }
 
@@ -506,7 +650,10 @@ async function runPlayerSearch(rawQuery) {
       searchResultsGrid.appendChild(empty);
       return;
     }
-    users.forEach((user) => searchResultsGrid.appendChild(createPlayerResultCard(user)));
+    users.forEach((user) => {
+      searchResultsGrid.appendChild(createPlayerResultCard(user));
+      void initPlayerAvatar(user.id);
+    });
   } catch {
     searchResultsCount.textContent = "The server is not running. Start it with: node server.js";
   }
@@ -515,20 +662,24 @@ async function runPlayerSearch(rawQuery) {
 playerSearchInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
-    void runPlayerSearch(playerSearchInput.value);
+    const q = playerSearchInput.value.trim();
+    if (q) {
+      navigateTo(`/search?q=${encodeURIComponent(q)}`);
+    } else {
+      navigateTo("/");
+    }
   }
 });
 playerSearchInput.addEventListener("search", () => {
   if (!playerSearchInput.value.trim()) {
-    showDefaultHomeContent();
+    navigateTo("/");
   }
 });
 
 const homeNavButton = document.querySelector("#home-nav-button");
 homeNavButton.addEventListener("click", () => {
   playerSearchInput.value = "";
-  showDefaultHomeContent();
-  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  navigateTo("/");
 });
 
 async function apiCall(method, path, body) {
@@ -571,6 +722,9 @@ async function apiCallRaw(method, path, buffer, contentType) {
 
 const friendsNavButton = document.querySelector("#friends-nav-button");
 const supportNavButton = document.querySelector("#support-nav-button");
+const messagesNavButton = document.querySelector("#messages-nav-button");
+const messagesPage = document.querySelector("#messages-page");
+const messagesTabs = Array.from(document.querySelectorAll(".messages-tab"));
 const friendsBadge = document.querySelector("#friends-badge");
 const friendsPage = document.querySelector("#friends-page");
 const friendsStatus = document.querySelector("#friends-status");
@@ -592,9 +746,17 @@ function showFriendsPage() {
   void loadFriendsPage();
 }
 
-friendsNavButton.addEventListener("click", showFriendsPage);
+friendsNavButton.addEventListener("click", () => navigateTo("/friends"));
 
-supportNavButton.addEventListener("click", showSupportPage);
+supportNavButton.addEventListener("click", () => navigateTo("/support"));
+
+messagesNavButton.addEventListener("click", () => navigateTo("/messages"));
+
+messagesTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    messagesTabs.forEach((item) => item.classList.toggle("active", item === tab));
+  });
+});
 
 friendsTabs.forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -853,6 +1015,7 @@ const catalogGenreList = document.querySelector("#catalog-genre-list");
 const catalogCrumb = document.querySelector("#catalog-crumb");
 const catalogCount = document.querySelector("#catalog-count");
 const catalogGrid = document.querySelector("#catalog-grid");
+const catalogPagination = document.querySelector("#catalog-pagination");
 const catalogSearch = document.querySelector("#catalog-search");
 const catalogSort = document.querySelector("#catalog-sort");
 const catalogCreatorName = document.querySelector("#catalog-creator-name");
@@ -870,8 +1033,11 @@ const catalogState = {
   maxPrice: "",
   includeUnavailable: true,
   q: "",
-  sort: "relevance"
+  sort: "relevance",
+  page: 1
 };
+
+const CATALOG_PER_PAGE = 20;
 
 function buildGenreRadios() {
   const allItem = document.createElement("label");
@@ -903,13 +1069,14 @@ function showCatalogPage() {
   void loadCatalog();
 }
 
-catalogNavButton.addEventListener("click", showCatalogPage);
-topMarketplaceButton.addEventListener("click", showCatalogPage);
+catalogNavButton.addEventListener("click", () => navigateTo("/catalog"));
+topMarketplaceButton.addEventListener("click", () => navigateTo("/catalog"));
 
 catalogCategories.forEach((button) => {
   button.addEventListener("click", () => {
     catalogCategories.forEach((item) => item.classList.toggle("active", item === button));
     catalogState.category = button.dataset.category;
+    catalogState.page = 1;
     void loadCatalog();
   });
 });
@@ -917,6 +1084,7 @@ catalogCategories.forEach((button) => {
 catalogGenreList.addEventListener("change", (event) => {
   if (event.target.name === "catalog-genre") {
     catalogState.genre = event.target.value;
+    catalogState.page = 1;
     void loadCatalog();
   }
 });
@@ -925,6 +1093,7 @@ document.querySelectorAll('input[name="catalog-creator"]').forEach((radio) => {
   radio.addEventListener("change", () => {
     catalogState.creator = radio.value;
     catalogCreatorName.value = "";
+    catalogState.page = 1;
     void loadCatalog();
   });
 });
@@ -934,12 +1103,14 @@ document.querySelector("#catalog-creator-go").addEventListener("click", () => {
   document.querySelectorAll('input[name="catalog-creator"]').forEach((radio) => {
     radio.checked = radio.value === "" && !catalogState.creator;
   });
+  catalogState.page = 1;
   void loadCatalog();
 });
 
 document.querySelectorAll('input[name="catalog-creator-type"]').forEach((radio) => {
   radio.addEventListener("change", () => {
     catalogState.creatorType = radio.value;
+    catalogState.page = 1;
     void loadCatalog();
   });
 });
@@ -947,6 +1118,7 @@ document.querySelectorAll('input[name="catalog-creator-type"]').forEach((radio) 
 document.querySelectorAll('input[name="catalog-currency"]').forEach((radio) => {
   radio.addEventListener("change", () => {
     catalogState.currency = radio.value;
+    catalogState.page = 1;
     void loadCatalog();
   });
 });
@@ -954,6 +1126,7 @@ document.querySelectorAll('input[name="catalog-currency"]').forEach((radio) => {
 document.querySelectorAll('input[name="catalog-price"]').forEach((radio) => {
   radio.addEventListener("change", () => {
     catalogState.priceMode = radio.value === "free" ? "free" : "any";
+    catalogState.page = 1;
     void loadCatalog();
   });
 });
@@ -965,12 +1138,14 @@ document.querySelector("#catalog-price-go").addEventListener("click", () => {
   document.querySelectorAll('input[name="catalog-price"]').forEach((radio) => {
     radio.checked = false;
   });
+  catalogState.page = 1;
   void loadCatalog();
 });
 
 document.querySelectorAll('input[name="catalog-unavailable"]').forEach((radio) => {
   radio.addEventListener("change", () => {
     catalogState.includeUnavailable = radio.value === "show";
+    catalogState.page = 1;
     void loadCatalog();
   });
 });
@@ -979,18 +1154,21 @@ catalogSearch.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
     catalogState.q = catalogSearch.value.trim();
+    catalogState.page = 1;
     void loadCatalog();
   }
 });
 catalogSearch.addEventListener("search", () => {
   if (!catalogSearch.value.trim()) {
     catalogState.q = "";
+    catalogState.page = 1;
     void loadCatalog();
   }
 });
 
 catalogSort.addEventListener("change", () => {
   catalogState.sort = catalogSort.value;
+  catalogState.page = 1;
   void loadCatalog();
 });
 
@@ -1023,7 +1201,7 @@ async function followCatalogCode() {
     return;
   }
   catalogCodeStatus.hidden = true;
-  await openItemPage(result.itemId);
+  navigateTo(`/item/${result.itemId}`);
 }
 
 catalogCodeGo.addEventListener("click", () => void followCatalogCode());
@@ -1081,6 +1259,9 @@ function buildCatalogQuery() {
   }
   if (catalogState.sort !== "relevance") {
     params.set("sort", catalogState.sort);
+  }
+  if (catalogState.page > 1) {
+    params.set("page", String(catalogState.page));
   }
   const text = params.toString();
   return text ? `?${text}` : "";
@@ -1172,7 +1353,7 @@ function createCatalogItemCard(item) {
   }
 
   card.append(thumb, body);
-  card.addEventListener("click", () => openItemPage(item.id));
+  card.addEventListener("click", () => navigateTo(`/item/${item.id}`));
   return card;
 }
 
@@ -1187,10 +1368,12 @@ async function loadCatalog() {
   const items = result.items || [];
   const total = result.total || 0;
   catalogCrumb.textContent = CATALOG_CATEGORY_LABELS[catalogState.category] || "All Categories";
+  const startIndex = (catalogState.page - 1) * CATALOG_PER_PAGE + 1;
   catalogCount.textContent = total === 0
     ? "0 Results"
-    : `1 - ${items.length} of ${total} Result${total === 1 ? "" : "s"}`;
+    : `${startIndex} - ${startIndex + items.length - 1} of ${total} Result${total === 1 ? "" : "s"}`;
   catalogGrid.textContent = "";
+  renderCatalogPagination(total);
   if (!items.length) {
     const empty = document.createElement("p");
     empty.className = "catalog-empty";
@@ -1201,6 +1384,192 @@ async function loadCatalog() {
     return;
   }
   items.forEach((item) => catalogGrid.appendChild(createCatalogItemCard(item)));
+}
+
+function renderCatalogPagination(total) {
+  catalogPagination.textContent = "";
+  const totalPages = Math.ceil(total / CATALOG_PER_PAGE);
+  if (totalPages <= 1) {
+    return;
+  }
+  const makeButton = (label, page, { disabled = false, active = false } = {}) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "catalog-page-button" + (active ? " active" : "");
+    button.textContent = label;
+    button.disabled = disabled;
+    if (!disabled && !active) {
+      button.addEventListener("click", () => {
+        catalogState.page = page;
+        void loadCatalog();
+        homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    }
+    catalogPagination.appendChild(button);
+  };
+  makeButton("‹", catalogState.page - 1, { disabled: catalogState.page <= 1 });
+  const start = Math.max(1, Math.min(catalogState.page - 4, totalPages - 8));
+  const end = Math.min(totalPages, start + 8);
+  if (start > 1) {
+    makeButton("1", 1);
+    if (start > 2) {
+      const ellipsis = document.createElement("span");
+      ellipsis.className = "catalog-page-ellipsis";
+      ellipsis.textContent = "…";
+      catalogPagination.appendChild(ellipsis);
+    }
+  }
+  for (let page = start; page <= end; page += 1) {
+    makeButton(String(page), page, { active: page === catalogState.page });
+  }
+  if (end < totalPages) {
+    if (end < totalPages - 1) {
+      const ellipsis = document.createElement("span");
+      ellipsis.className = "catalog-page-ellipsis";
+      ellipsis.textContent = "…";
+      catalogPagination.appendChild(ellipsis);
+    }
+    makeButton(String(totalPages), totalPages);
+  }
+  makeButton("›", catalogState.page + 1, { disabled: catalogState.page >= totalPages });
+}
+
+const inventoryNavButton = document.querySelector("#inventory-nav-button");
+const inventoryPage = document.querySelector("#inventory-page");
+const inventoryTitle = document.querySelector("#inventory-title");
+const inventorySearch = document.querySelector("#inventory-search");
+const inventoryCount = document.querySelector("#inventory-count");
+const inventoryGrid = document.querySelector("#inventory-grid");
+const inventoryPagination = document.querySelector("#inventory-pagination");
+
+const INVENTORY_PER_PAGE = 24;
+const inventoryState = { q: "", page: 1 };
+let inventoryItems = [];
+
+function showInventoryPage() {
+  hideAllPages();
+  inventoryPage.hidden = false;
+  inventoryTitle.textContent = `${currentUser ? currentUser.username : "User"}'s Inventory`;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadInventory();
+}
+
+inventoryNavButton.addEventListener("click", () => navigateTo("/inventory"));
+
+inventorySearch.addEventListener("input", () => {
+  inventoryState.q = inventorySearch.value.trim().toLowerCase();
+  inventoryState.page = 1;
+  renderInventory();
+});
+
+async function loadInventory() {
+  inventoryCount.textContent = "Loading...";
+  inventoryGrid.textContent = "";
+  inventoryPagination.hidden = true;
+  inventoryPagination.textContent = "";
+  const { ok, result } = await apiCall("GET", "/api/inventory");
+  if (!ok) {
+    inventoryItems = [];
+    inventoryCount.textContent = result.error || "Could not load inventory.";
+    return;
+  }
+  inventoryItems = result.items || [];
+  renderInventory();
+}
+
+function renderInventory() {
+  const query = inventoryState.q;
+  const filtered = query
+    ? inventoryItems.filter((item) => (item.name || "").toLowerCase().includes(query))
+    : inventoryItems;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / INVENTORY_PER_PAGE));
+  if (inventoryState.page > totalPages) {
+    inventoryState.page = totalPages;
+  }
+  const startIndex = (inventoryState.page - 1) * INVENTORY_PER_PAGE;
+  const pageItems = filtered.slice(startIndex, startIndex + INVENTORY_PER_PAGE);
+  if (inventoryItems.length === 0) {
+    inventoryCount.textContent = "You don't have any items yet.";
+  } else if (filtered.length === 0) {
+    inventoryCount.textContent = "No items match your search.";
+  } else {
+    inventoryCount.textContent = `Showing ${startIndex + 1} to ${startIndex + pageItems.length} of ${filtered.length}`;
+  }
+  inventoryGrid.textContent = "";
+  pageItems.forEach((item) => inventoryGrid.appendChild(createInventoryItemCard(item)));
+  renderInventoryPagination(totalPages, filtered.length);
+}
+
+function renderInventoryPagination(totalPages, shownCount) {
+  inventoryPagination.textContent = "";
+  if (shownCount === 0) {
+    inventoryPagination.hidden = true;
+    return;
+  }
+  inventoryPagination.hidden = false;
+  const goTo = (page) => {
+    inventoryState.page = page;
+    renderInventory();
+    homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const prev = document.createElement("button");
+  prev.type = "button";
+  prev.className = "inventory-page-arrow";
+  prev.textContent = "‹";
+  prev.disabled = inventoryState.page <= 1;
+  prev.addEventListener("click", () => goTo(inventoryState.page - 1));
+  const label = document.createElement("span");
+  label.className = "inventory-page-label";
+  label.textContent = `Page ${inventoryState.page} of ${totalPages}`;
+  const next = document.createElement("button");
+  next.type = "button";
+  next.className = "inventory-page-arrow";
+  next.textContent = "›";
+  next.disabled = inventoryState.page >= totalPages;
+  next.addEventListener("click", () => goTo(inventoryState.page + 1));
+  inventoryPagination.append(prev, label, next);
+}
+
+function createInventoryItemCard(item) {
+  const card = document.createElement("div");
+  card.className = "catalog-item inventory-item";
+  const thumb = document.createElement("div");
+  thumb.className = "catalog-thumb";
+  if (item.thumbnailUrl) {
+    const image = document.createElement("img");
+    image.src = item.thumbnailUrl;
+    image.alt = item.name;
+    thumb.appendChild(image);
+  } else {
+    const initial = document.createElement("span");
+    initial.className = "catalog-thumb-initial";
+    initial.textContent = (item.name || "?").trim().charAt(0) || "?";
+    thumb.appendChild(initial);
+  }
+  if (item.isLimited || item.isLimitedUnique) {
+    const ribbon = document.createElement("span");
+    ribbon.className = "inventory-limited-ribbon";
+    ribbon.textContent = "LIMITED";
+    thumb.appendChild(ribbon);
+  }
+  const body = document.createElement("div");
+  body.className = "catalog-item-body";
+  const name = document.createElement("p");
+  name.className = "catalog-item-name";
+  name.textContent = item.name;
+  name.title = item.name;
+  body.appendChild(name);
+  const creator = document.createElement("p");
+  creator.className = "inventory-item-creator";
+  creator.textContent = "By ";
+  const creatorName = document.createElement("span");
+  creatorName.className = "creator-name";
+  creatorName.textContent = item.creatorName || "Unknown";
+  creator.appendChild(creatorName);
+  body.appendChild(creator);
+  card.append(thumb, body);
+  card.addEventListener("click", () => navigateTo(`/item/${item.id}`));
+  return card;
 }
 
 function fillSelect(select, placeholder, items, selectedValue) {
@@ -1245,6 +1614,7 @@ function setStatus(element, text, isError = false) {
 
 function populateSettings(user) {
   settingsUsername.textContent = user.username;
+  settingsDisplayName.textContent = user.displayName || user.username;
   blurbInput.value = user.blurb || "";
 
   const [birthYear, birthMonth, birthDay] = String(user.birthday || "").split("-");
@@ -1275,7 +1645,7 @@ function populateSettings(user) {
   setStatus(themeStatus, "");
 }
 
-async function openSettings() {
+async function showSettingsPage() {
   const user = await fetchMe();
   if (!user) {
     return;
@@ -1284,25 +1654,321 @@ async function openSettings() {
   displayUser(user);
   populateSettings(user);
   accountMenu.hidden = true;
-  settingsOverlay.hidden = false;
+  hideAllPages();
+  settingsPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-function closeSettings() {
-  settingsOverlay.hidden = true;
+function showPremiumPage() {
+  hideAllPages();
+  premiumPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  updatePremiumUI();
+}
+
+const downloadPage = document.querySelector("#download-page");
+const downloadNavButton = document.querySelector("#download-nav-button");
+const downloadGetAppButton = document.querySelector("#download-get-app-button");
+
+function showDownloadPage() {
+  hideAllPages();
+  downloadPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+downloadNavButton.addEventListener("click", () => navigateTo("/download"));
+
+downloadGetAppButton.addEventListener("click", () => {
+  downloadGetAppButton.textContent = "Coming soon...";
+  downloadGetAppButton.disabled = true;
+  window.setTimeout(() => {
+    downloadGetAppButton.textContent = "Get App";
+    downloadGetAppButton.disabled = false;
+  }, 2000);
+});
+
+const transactionsPage = document.querySelector("#transactions-page");
+const transactionsTabs = document.querySelectorAll(".transactions-tab");
+const transactionsPanels = {
+  "my-transactions": document.querySelector("#transactions-my-transactions"),
+  "summary": document.querySelector("#transactions-summary"),
+  "trade-currency": document.querySelector("#transactions-trade-currency")
+};
+const transactionTypeSelect = document.querySelector("#transaction-type-select");
+const transactionsTableBody = document.querySelector("#transactions-table-body");
+const summaryPeriodSelect = document.querySelector("#summary-period-select");
+const summaryTableBody = document.querySelector("#summary-table-body");
+const summaryTotalAmount = document.querySelector("#summary-total-amount");
+const robuxBalanceButton = document.querySelector("#robux-balance-button");
+
+function showTransactionsPage() {
+  hideAllPages();
+  transactionsPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadTransactions();
+}
+
+robuxBalanceButton.addEventListener("click", () => navigateTo("/transactions"));
+
+transactionsTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    transactionsTabs.forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    const target = tab.dataset.tab;
+    Object.values(transactionsPanels).forEach((panel) => { panel.hidden = true; });
+    transactionsPanels[target].hidden = false;
+    if (target === "summary") {
+      void loadSummary();
+    }
+  });
+});
+
+transactionTypeSelect.addEventListener("change", () => {
+  void loadTransactions();
+});
+
+summaryPeriodSelect.addEventListener("change", () => {
+  void loadSummary();
+});
+
+async function loadTransactions() {
+  transactionsTableBody.innerHTML = '<tr><td colspan="4" class="transactions-empty">Loading...</td></tr>';
+  const type = transactionTypeSelect.value;
+  const { ok, result } = await apiCall("GET", `/api/transactions?type=${encodeURIComponent(type)}`);
+  if (!ok) {
+    transactionsTableBody.innerHTML = '<tr><td colspan="4" class="transactions-empty">Could not load transactions.</td></tr>';
+    return;
+  }
+  const transactions = result.transactions || [];
+  if (transactions.length === 0) {
+    const emptyMessage = type === "purchases"
+      ? "You have not purchased any items! Browse the Catalog to buy items."
+      : type === "sales"
+      ? "You have not sold any items."
+      : type === "trades"
+      ? "You have no trade history."
+      : "No premium transactions found.";
+    transactionsTableBody.innerHTML = `<tr><td colspan="4" class="transactions-empty">${emptyMessage}</td></tr>`;
+    return;
+  }
+  transactionsTableBody.innerHTML = "";
+  transactions.forEach((tx) => {
+    const row = document.createElement("tr");
+    const dateCell = document.createElement("td");
+    dateCell.textContent = tx.date ? new Date(tx.date).toLocaleDateString() : "";
+    const memberCell = document.createElement("td");
+    memberCell.textContent = tx.member || "";
+    const descCell = document.createElement("td");
+    descCell.textContent = tx.description || "";
+    const amountCell = document.createElement("td");
+    amountCell.textContent = tx.amount != null ? (tx.amount < 0 ? tx.amount : `+${tx.amount}`) : "";
+    row.append(dateCell, memberCell, descCell, amountCell);
+    transactionsTableBody.appendChild(row);
+  });
+}
+
+async function loadSummary() {
+  summaryTableBody.innerHTML = '<tr><td colspan="2" class="transactions-empty">Loading...</td></tr>';
+  summaryTotalAmount.textContent = "0";
+  const period = summaryPeriodSelect.value;
+  const { ok, result } = await apiCall("GET", `/api/transactions/summary?period=${encodeURIComponent(period)}`);
+  if (!ok) {
+    summaryTableBody.innerHTML = '<tr><td colspan="2" class="transactions-empty">Could not load summary.</td></tr>';
+    return;
+  }
+  const categories = result.categories || [];
+  if (categories.length === 0) {
+    summaryTableBody.innerHTML = '<tr><td colspan="2" class="transactions-empty">No transactions in this period.</td></tr>';
+    summaryTotalAmount.textContent = "0";
+    return;
+  }
+  summaryTableBody.innerHTML = "";
+  let total = 0;
+  categories.forEach((cat) => {
+    const row = document.createElement("tr");
+    const nameCell = document.createElement("td");
+    nameCell.textContent = cat.name || "";
+    const creditCell = document.createElement("td");
+    creditCell.textContent = cat.credit != null ? cat.credit : "";
+    row.append(nameCell, creditCell);
+    summaryTableBody.appendChild(row);
+    if (cat.credit != null) {
+      total += Number(cat.credit);
+    }
+  });
+  summaryTotalAmount.textContent = total;
+}
+
+const tradesPage = document.querySelector("#trades-page");
+const tradesNavButton = document.querySelector("#trades-nav-button");
+const tradesDirectionSelect = document.querySelector("#trades-direction-select");
+const tradesList = document.querySelector("#trades-list");
+
+function showTradesPage() {
+  hideAllPages();
+  tradesPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadTrades();
+}
+
+tradesNavButton.addEventListener("click", () => navigateTo("/trades"));
+
+tradesDirectionSelect.addEventListener("change", () => {
+  void loadTrades();
+});
+
+async function loadTrades() {
+  tradesList.innerHTML = '<p class="trades-empty">Loading...</p>';
+  const direction = tradesDirectionSelect.value;
+  const { ok, result } = await apiCall("GET", `/api/trades?direction=${encodeURIComponent(direction)}`);
+  if (!ok) {
+    tradesList.innerHTML = '<p class="trades-empty">Could not load trades.</p>';
+    return;
+  }
+  const trades = result.trades || [];
+  if (trades.length === 0) {
+    const emptyMessage = direction === "inbound"
+      ? "You have no inbound trade requests."
+      : "You have no outbound trade requests.";
+    tradesList.innerHTML = `<p class="trades-empty">${emptyMessage}</p>`;
+    return;
+  }
+  tradesList.innerHTML = "";
+  trades.forEach((trade) => {
+    const tradeCard = document.createElement("div");
+    tradeCard.className = "trade-card";
+    const header = document.createElement("div");
+    header.className = "trade-header";
+    const userSpan = document.createElement("span");
+    userSpan.className = "trade-user";
+    userSpan.textContent = trade.username || "Unknown User";
+    const dateSpan = document.createElement("span");
+    dateSpan.className = "trade-date";
+    dateSpan.textContent = trade.created_at ? new Date(trade.created_at).toLocaleDateString() : "";
+    header.append(userSpan, dateSpan);
+    const items = document.createElement("div");
+    items.className = "trade-items";
+    (trade.items || []).forEach((item) => {
+      const itemDiv = document.createElement("div");
+      itemDiv.className = "trade-item";
+      const thumb = document.createElement("div");
+      thumb.className = "trade-item-thumb";
+      if (item.thumbnail_url) {
+        const img = document.createElement("img");
+        img.src = item.thumbnail_url;
+        img.alt = item.name;
+        thumb.appendChild(img);
+      } else {
+        thumb.textContent = (item.name || "?").charAt(0);
+      }
+      const name = document.createElement("span");
+      name.className = "trade-item-name";
+      name.textContent = item.name || "Unknown Item";
+      itemDiv.append(thumb, name);
+      items.appendChild(itemDiv);
+    });
+    const actions = document.createElement("div");
+    actions.className = "trade-actions";
+    if (direction === "inbound") {
+      const acceptBtn = document.createElement("button");
+      acceptBtn.className = "trade-accept-button";
+      acceptBtn.type = "button";
+      acceptBtn.textContent = "Accept Trade";
+      acceptBtn.addEventListener("click", () => handleTradeAction(trade.id, "accept"));
+      const declineBtn = document.createElement("button");
+      declineBtn.className = "trade-decline-button";
+      declineBtn.type = "button";
+      declineBtn.textContent = "Decline";
+      declineBtn.addEventListener("click", () => handleTradeAction(trade.id, "decline"));
+      actions.append(acceptBtn, declineBtn);
+    } else {
+      const cancelBtn = document.createElement("button");
+      cancelBtn.className = "trade-cancel-button";
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "Cancel Trade";
+      cancelBtn.addEventListener("click", () => handleTradeAction(trade.id, "cancel"));
+      actions.appendChild(cancelBtn);
+    }
+    tradeCard.append(header, items, actions);
+    tradesList.appendChild(tradeCard);
+  });
+}
+
+async function handleTradeAction(tradeId, action) {
+  const { ok, result } = await apiCall("POST", "/api/trades/action", { trade_id: tradeId, action });
+  if (ok) {
+    void loadTrades();
+  } else {
+    alert(result.error || "Trade action failed.");
+  }
+}
+
+function updatePremiumUI() {
+  const currentTier = currentUser?.premiumTier || "";
+  const timerStart = currentUser?.premiumTimerStart ? new Date(currentUser.premiumTimerStart) : null;
+  const tierMap = { classic: "Classic", turbo: "Turbo", outrageous: "Outrageous" };
+  const robuxMap = { classic: 40, turbo: 90, outrageous: 120 };
+
+  document.querySelectorAll(".tier-button").forEach((button) => {
+    const btnTier = button.dataset.tier;
+    if (btnTier === currentTier) {
+      button.disabled = true;
+      button.textContent = "Current Plan";
+    } else {
+      button.disabled = false;
+      button.textContent = `Get ${tierMap[btnTier] || btnTier}`;
+    }
+  });
+
+  if (premiumStatus) {
+    if (currentTier && timerStart) {
+      const nextPayout = new Date(timerStart.getTime() + 24 * 60 * 60 * 1000);
+      const now = new Date();
+      const msLeft = nextPayout - now;
+      if (msLeft > 0) {
+        const hours = Math.floor(msLeft / (60 * 60 * 1000));
+        const minutes = Math.floor((msLeft % (60 * 60 * 1000)) / (60 * 1000));
+        premiumStatus.textContent = `${tierMap[currentTier]} active — next payout of R$${robuxMap[currentTier]} in ${hours}h ${minutes}m`;
+      } else {
+        premiumStatus.textContent = `${tierMap[currentTier]} active — payout processing soon`;
+      }
+    } else {
+      premiumStatus.textContent = "";
+    }
+  }
 }
 
 openSettingsButton.addEventListener("click", () => {
-  void openSettings();
+  navigateTo("/settings");
 });
-settingsCloseButton.addEventListener("click", closeSettings);
-settingsOverlay.addEventListener("click", (event) => {
-  if (event.target === settingsOverlay) {
-    closeSettings();
-  }
+
+premiumButton.addEventListener("click", () => navigateTo("/premium"));
+
+document.querySelectorAll(".tier-button:not(:disabled)").forEach((button) => {
+  button.addEventListener("click", async () => {
+    const tier = button.dataset.tier;
+    if (!tier) return;
+    button.disabled = true;
+    const oldText = button.textContent;
+    button.textContent = "Activating...";
+    const { ok, result } = await apiCall("POST", "/api/premium/activate", { tier });
+    if (ok) {
+      currentUser.premiumTier = tier;
+      currentUser.premiumTimerStart = new Date().toISOString();
+      if (premiumStatus) {
+        premiumStatus.textContent = `${tier.charAt(0).toUpperCase() + tier.slice(1)} Premium activated! You'll receive R$${result.robuxPerDay} every 24 hours.`;
+      }
+      updatePremiumUI();
+    } else {
+      button.disabled = false;
+      button.textContent = oldText;
+      if (premiumStatus) premiumStatus.textContent = result.error || "Could not activate premium.";
+    }
+  });
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !settingsOverlay.hidden) {
-    closeSettings();
+  if (event.key === "Escape") {
+    accountMenu.hidden = true;
   }
 });
 
@@ -1310,6 +1976,12 @@ editUsernameButton.addEventListener("click", () => {
   usernameEditor.hidden = !usernameEditor.hidden;
   if (!usernameEditor.hidden) {
     newUsernameInput.focus();
+  }
+});
+editDisplayNameButton.addEventListener("click", () => {
+  displayNameEditor.hidden = !displayNameEditor.hidden;
+  if (!displayNameEditor.hidden) {
+    newDisplayNameInput.focus();
   }
 });
 editPasswordButton.addEventListener("click", () => {
@@ -1359,6 +2031,24 @@ saveUsernameButton.addEventListener("click", async () => {
   usernamePasswordInput.value = "";
   usernameEditor.hidden = true;
   setStatus(accountStatus, "Username changed.");
+});
+
+saveDisplayNameButton.addEventListener("click", async () => {
+  const newDisplayName = newDisplayNameInput.value.trim();
+  if (newDisplayName.length < 1 || newDisplayName.length > 20) {
+    setStatus(accountStatus, "Display name must be 1-20 characters.", true);
+    return;
+  }
+  setStatus(accountStatus, "Saving display name...");
+  const { ok, result } = await apiPut("/api/me/display-name", { newDisplayName });
+  if (!ok) {
+    setStatus(accountStatus, result.error || "Could not change your display name.", true);
+    return;
+  }
+  currentUser.displayName = result.user.display_name || newDisplayName;
+  newDisplayNameInput.value = "";
+  displayNameEditor.hidden = true;
+  setStatus(accountStatus, "Display name changed.");
 });
 
 savePasswordButton.addEventListener("click", async () => {
@@ -1496,7 +2186,7 @@ function showAdminPage() {
   void loadRobuxHistory();
 }
 
-adminNavButton.addEventListener("click", showAdminPage);
+adminNavButton.addEventListener("click", () => navigateTo("/admin"));
 
 const banManagerNavButton = document.querySelector("#ban-manager-nav-button");
 const banManagerPage = document.querySelector("#ban-manager-page");
@@ -1514,7 +2204,7 @@ function showBanManagerPage() {
   void loadBanManagerUsers();
 }
 
-banManagerNavButton.addEventListener("click", showBanManagerPage);
+banManagerNavButton.addEventListener("click", () => navigateTo("/admin/bans"));
 
 async function loadBanManagerUsers() {
   const { ok, result } = await apiCall("GET", "/api/ban-manager/users");
@@ -1634,6 +2324,376 @@ unbanManagerButton.addEventListener("click", async () => {
   void loadBanManagerUsers();
 });
 
+const verificationNavButton = document.querySelector("#verification-nav-button");
+const verificationPage = document.querySelector("#verification-page");
+const verificationUser = document.querySelector("#verification-user");
+const verificationVerifyButton = document.querySelector("#verification-verify-button");
+const verificationStatus = document.querySelector("#verification-status");
+const verificationList = document.querySelector("#verification-list");
+
+function showVerificationPage() {
+  hideAllPages();
+  verificationPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadVerificationUsers();
+}
+
+verificationNavButton.addEventListener("click", () => navigateTo("/admin/verification"));
+
+const adminPreviewCard = document.querySelector("#admin-preview-card");
+const adminPreviewOpenButton = document.querySelector("#admin-preview-open");
+const previewPage = document.querySelector("#preview-page");
+const previewItemIdInput = document.querySelector("#preview-item-id");
+const previewLoadButton = document.querySelector("#preview-load-button");
+const previewStatus = document.querySelector("#preview-status");
+const previewControlsCard = document.querySelector("#preview-controls-card");
+const preview3dContainer = document.querySelector("#preview-3d-container");
+const previewUpButton = document.querySelector("#preview-up-button");
+const previewDownButton = document.querySelector("#preview-down-button");
+const previewLeftButton = document.querySelector("#preview-left-button");
+const previewRightButton = document.querySelector("#preview-right-button");
+const previewBiggerButton = document.querySelector("#preview-bigger-button");
+const previewSmallerButton = document.querySelector("#preview-smaller-button");
+const previewRotateLeftButton = document.querySelector("#preview-rotate-left-button");
+const previewRotateRightButton = document.querySelector("#preview-rotate-right-button");
+const previewOffsetValue = document.querySelector("#preview-offset-value");
+const previewXValue = document.querySelector("#preview-x-value");
+const previewScaleValue = document.querySelector("#preview-scale-value");
+const previewRotationValue = document.querySelector("#preview-rotation-value");
+const previewConfirmRow = document.querySelector("#preview-confirm-row");
+const previewYesButton = document.querySelector("#preview-yes-button");
+const previewNoButton = document.querySelector("#preview-no-button");
+
+adminPreviewOpenButton.addEventListener("click", () => navigateTo("/admin/preview"));
+
+async function loadVerificationUsers() {
+  const { ok, result } = await apiCall("GET", "/api/verification/users");
+  if (!ok) {
+    setStatus(verificationStatus, result.error || "Could not load users.", true);
+    return;
+  }
+  verificationUser.innerHTML = '<option value="">Select a user...</option>';
+  verificationList.innerHTML = "";
+  for (const user of result.users) {
+    const option = document.createElement("option");
+    option.value = user.id;
+    option.textContent = user.username;
+    if (user.verified) {
+      option.textContent += " ✓";
+    }
+    verificationUser.appendChild(option);
+    if (user.verified) {
+      const li = document.createElement("li");
+      li.className = "verified-user";
+      li.innerHTML = `<strong>${user.username}</strong> ✓ <button class="button-ghost unverify-button" data-user-id="${user.id}" type="button">Unverify</button>`;
+      verificationList.appendChild(li);
+    }
+  }
+  verificationList.querySelectorAll(".unverify-button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const userId = button.dataset.userId;
+      button.disabled = true;
+      const { ok, result } = await apiCall("POST", "/api/verification/unverify", { userId });
+      button.disabled = false;
+      if (!ok) {
+        setStatus(verificationStatus, result.error || "Could not unverify user.", true);
+        return;
+      }
+      setStatus(verificationStatus, `Unverified ${result.username}.`);
+      void loadVerificationUsers();
+    });
+  });
+}
+
+verificationVerifyButton.addEventListener("click", async () => {
+  const userId = verificationUser.value;
+  if (!userId) {
+    setStatus(verificationStatus, "Select a user.", true);
+    return;
+  }
+  verificationVerifyButton.disabled = true;
+  setStatus(verificationStatus, "Verifying user...");
+  const { ok, result } = await apiCall("POST", "/api/verification/verify", { userId });
+  verificationVerifyButton.disabled = false;
+  if (!ok) {
+    setStatus(verificationStatus, result.error || "Could not verify user.", true);
+    return;
+  }
+  setStatus(verificationStatus, `Verified ${result.username}.`);
+  verificationUser.value = "";
+  void loadVerificationUsers();
+});
+
+function showPreviewPage() {
+  hideAllPages();
+  previewPage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+let previewRenderer = null;
+let previewAnimationId = null;
+let previewOrbitControls = null;
+let previewItemOffset = 0;
+let previewItemX = 0;
+let previewItemScale = 1;
+let previewItemRotation = 0;
+let previewCurrentItem = null;
+let previewItemModel = null;
+let previewItemBaseY = 0;
+let previewItemBaseX = 0;
+let previewItemBaseScale = 1;
+let previewItemBaseRot = 0;
+
+previewLoadButton.addEventListener("click", async () => {
+  const itemId = previewItemIdInput.value.trim();
+  if (!itemId) {
+    setStatus(previewStatus, "Enter an item ID.", true);
+    return;
+  }
+
+  previewLoadButton.disabled = true;
+  setStatus(previewStatus, "Loading item...");
+
+  try {
+    const response = await fetch(`${apiBase}/api/catalog/${itemId}`, { credentials: "same-origin" });
+    const data = await response.json();
+    if (!response.ok) {
+      setStatus(previewStatus, data.error || "Item not found.", true);
+      previewLoadButton.disabled = false;
+      return;
+    }
+
+    previewCurrentItem = {
+      id: data.item.id,
+      name: data.item.name,
+      assetType: data.item.assetType,
+      modelUrl: data.item.modelUrl,
+      yOffset: data.item.yOffset || 0,
+      xOffset: data.item.xOffset || 0,
+      scaleOffset: data.item.scaleOffset || 1,
+      rotationOffset: data.item.rotationOffset || 0
+    };
+    previewItemOffset = 0;
+    previewItemX = 0;
+    previewItemScale = 1;
+    previewItemRotation = 0;
+    previewOffsetValue.textContent = "0";
+    previewXValue.textContent = "0";
+    previewScaleValue.textContent = "1.0";
+    previewRotationValue.textContent = "0";
+    previewControlsCard.hidden = false;
+    previewConfirmRow.hidden = true;
+    setStatus(previewStatus, `Loaded: ${data.name}`);
+    initPreviewViewer(previewCurrentItem);
+  } catch (error) {
+    setStatus(previewStatus, "Failed to load item.", true);
+  }
+  previewLoadButton.disabled = false;
+});
+
+function initPreviewViewer(item) {
+  if (!preview3dContainer || typeof THREE === "undefined") return;
+
+  if (previewRenderer) {
+    cancelAnimationFrame(previewAnimationId);
+    if (previewRenderer.domElement.parentNode) {
+      previewRenderer.domElement.parentNode.removeChild(previewRenderer.domElement);
+    }
+    previewRenderer.dispose();
+    previewRenderer = null;
+  }
+
+  const width = preview3dContainer.clientWidth;
+  const height = preview3dContainer.clientHeight;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x1a1d21);
+  const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 1000);
+  previewRenderer = new THREE.WebGLRenderer({ antialias: true });
+  previewRenderer.setSize(width, height);
+  previewRenderer.setPixelRatio(window.devicePixelRatio);
+  preview3dContainer.appendChild(previewRenderer.domElement);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  dirLight.position.set(3, 6, 5);
+  scene.add(dirLight);
+
+  if (previewOrbitControls) {
+    previewOrbitControls.dispose();
+    previewOrbitControls = null;
+  }
+  if (THREE.OrbitControls) {
+    previewOrbitControls = new THREE.OrbitControls(camera, previewRenderer.domElement);
+    previewOrbitControls.enableDamping = true;
+    previewOrbitControls.dampingFactor = 0.08;
+    previewOrbitControls.target.set(0, 1.2, 0);
+    previewOrbitControls.minDistance = 2;
+    previewOrbitControls.maxDistance = 15;
+  }
+
+  const character = new THREE.Group();
+  const equippedGroup = new THREE.Group();
+  equippedGroup.name = "equipped-items";
+  scene.add(equippedGroup);
+  scene.add(character);
+
+  const GLTFLoader = THREE.GLTFLoader || window.GLTFLoader;
+  if (!GLTFLoader) return;
+
+  const loader = new GLTFLoader();
+  loader.load("/r6.glb", (gltf) => {
+    const model = gltf.scene;
+    model.scale.set(1.5, 1.5, 1.5);
+    model.position.y = -1;
+    character.add(model);
+
+    camera.position.set(0, 1.5, 6.5);
+    camera.lookAt(0, 1.2, 0);
+
+    if (item && item.modelUrl) {
+      const itemLoader = new GLTFLoader();
+      const cacheBustedUrl = item.modelUrl.includes("?") ? `${item.modelUrl}&t=${Date.now()}` : `${item.modelUrl}?t=${Date.now()}`;
+      itemLoader.load(cacheBustedUrl, (itemGltf) => {
+        const itemModel = itemGltf.scene;
+        itemModel.name = `preview-item-${item.id}`;
+        equippedGroup.add(itemModel);
+        previewItemModel = itemModel;
+
+        const avatarHead = findAvatarHead(character);
+        if (avatarHead) {
+          itemModel.updateMatrixWorld(true);
+          const sourceBounds = new THREE.Box3().setFromObject(itemModel);
+          const sourceSize = sourceBounds.getSize(new THREE.Vector3());
+          if (sourceSize.x > 0) {
+            const hatScale = Number(item.assetType) === 49
+              ? avatarHead.size.x / 2 * 2.6
+              : avatarHead.size.x / 2 * 0.85;
+            itemModel.scale.multiplyScalar(hatScale);
+            itemModel.updateMatrixWorld(true);
+            const modelBounds = new THREE.Box3().setFromObject(itemModel);
+            const modelCenter = modelBounds.getCenter(new THREE.Vector3());
+            const headCenter = avatarHead.bounds.getCenter(new THREE.Vector3());
+            itemModel.position.x += headCenter.x - modelCenter.x;
+            if (Number(item.assetType) === 48) {
+              itemModel.position.y += headCenter.y - modelCenter.y;
+            } else if (Number(item.assetType) === 49) {
+              itemModel.position.y += avatarHead.bounds.max.y - modelBounds.min.y + 0.1;
+            } else {
+              itemModel.position.y += avatarHead.bounds.max.y - modelBounds.min.y - 0.35;
+            }
+            itemModel.position.z += headCenter.z - modelCenter.z + 0.12;
+            itemModel.rotation.y = Math.PI;
+          }
+        }
+        if (item.id === 31) {
+          itemModel.position.y -= 0.8;
+        } else if (item.id === 33) {
+          itemModel.position.z -= 0.3;
+        } else if (item.id === 28) {
+          itemModel.scale.multiplyScalar(0.92);
+        }
+        if (Number(item.yOffset)) {
+          itemModel.position.y += Number(item.yOffset);
+        }
+        if (Number(item.xOffset)) {
+          itemModel.position.x += Number(item.xOffset);
+        }
+        if (item.scaleOffset && item.scaleOffset !== 1) {
+          itemModel.scale.multiplyScalar(item.scaleOffset);
+        }
+        if (Number(item.rotationOffset)) {
+          itemModel.rotation.y += Number(item.rotationOffset) * Math.PI / 180;
+        }
+        previewItemBaseY = itemModel.position.y;
+        previewItemBaseX = itemModel.position.x;
+        previewItemBaseScale = itemModel.scale.x;
+        previewItemBaseRot = itemModel.rotation.y;
+      });
+    }
+
+    function animate() {
+      previewAnimationId = requestAnimationFrame(animate);
+      if (previewOrbitControls) previewOrbitControls.update();
+      previewRenderer.render(scene, camera);
+    }
+    animate();
+  });
+}
+
+function adjustPreview(mutate) {
+  if (!previewCurrentItem) return;
+  mutate();
+  previewItemOffset = Math.round(previewItemOffset * 10) / 10;
+  previewItemX = Math.round(previewItemX * 10) / 10;
+  previewItemScale = Math.round(previewItemScale * 100) / 100;
+  previewOffsetValue.textContent = previewItemOffset.toFixed(1);
+  previewXValue.textContent = previewItemX.toFixed(1);
+  previewScaleValue.textContent = previewItemScale.toFixed(2);
+  previewRotationValue.textContent = String(previewItemRotation);
+  applyPreviewOffset();
+  previewConfirmRow.hidden = false;
+}
+
+previewUpButton.addEventListener("click", () => adjustPreview(() => { previewItemOffset += 0.1; }));
+previewDownButton.addEventListener("click", () => adjustPreview(() => { previewItemOffset -= 0.1; }));
+previewLeftButton.addEventListener("click", () => adjustPreview(() => { previewItemX -= 0.1; }));
+previewRightButton.addEventListener("click", () => adjustPreview(() => { previewItemX += 0.1; }));
+previewBiggerButton.addEventListener("click", () => adjustPreview(() => { previewItemScale += 0.1; }));
+previewSmallerButton.addEventListener("click", () => adjustPreview(() => { previewItemScale -= 0.1; }));
+previewRotateLeftButton.addEventListener("click", () => adjustPreview(() => { previewItemRotation += 15; }));
+previewRotateRightButton.addEventListener("click", () => adjustPreview(() => { previewItemRotation -= 15; }));
+
+function applyPreviewOffset() {
+  if (!previewItemModel) return;
+  previewItemModel.position.y = previewItemBaseY + previewItemOffset;
+  previewItemModel.position.x = previewItemBaseX + previewItemX;
+  const scale = previewItemBaseScale * previewItemScale;
+  previewItemModel.scale.set(scale, scale, scale);
+  previewItemModel.rotation.y = previewItemBaseRot + previewItemRotation * Math.PI / 180;
+}
+
+previewYesButton.addEventListener("click", async () => {
+  if (!previewCurrentItem) return;
+  previewYesButton.disabled = true;
+  previewNoButton.disabled = true;
+  const { ok, result } = await apiCall("PATCH", `/api/admin/catalog-items/${previewCurrentItem.id}/placement`, {
+    yOffset: previewItemOffset,
+    xOffset: previewItemX,
+    scaleOffset: previewItemScale,
+    rotationOffset: previewItemRotation
+  });
+  previewYesButton.disabled = false;
+  previewNoButton.disabled = false;
+  if (!ok) {
+    setStatus(previewStatus, result.error || "Could not save placement.", true);
+    return;
+  }
+  previewCurrentItem.yOffset = previewItemOffset;
+  previewCurrentItem.xOffset = previewItemX;
+  previewCurrentItem.scaleOffset = previewItemScale;
+  previewCurrentItem.rotationOffset = previewItemRotation;
+  setStatus(previewStatus, `Saved placement for ${previewCurrentItem.name}.`);
+  previewConfirmRow.hidden = true;
+  previewItemIdInput.value = "";
+  void initSmallAvatars();
+  void initWelcomePortrait();
+});
+
+previewNoButton.addEventListener("click", () => {
+  previewItemOffset = 0;
+  previewItemX = 0;
+  previewItemScale = 1;
+  previewItemRotation = 0;
+  previewOffsetValue.textContent = "0";
+  previewXValue.textContent = "0";
+  previewScaleValue.textContent = "1.0";
+  previewRotationValue.textContent = "0";
+  applyPreviewOffset();
+  previewConfirmRow.hidden = true;
+  setStatus(previewStatus, "Reset to saved position.");
+});
+
 const userSearchNavButton = document.querySelector("#user-search-nav-button");
 const userSearchPage = document.querySelector("#user-search-page");
 const userSearchInput = document.querySelector("#user-search-input");
@@ -1648,7 +2708,7 @@ function showUserSearchPage() {
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-userSearchNavButton.addEventListener("click", showUserSearchPage);
+userSearchNavButton.addEventListener("click", () => navigateTo("/admin/users"));
 
 userSearchButton.addEventListener("click", async () => {
   const username = userSearchInput.value.trim();
@@ -1694,7 +2754,7 @@ function showServerStatsPage() {
   void loadServerStats();
 }
 
-serverStatsNavButton.addEventListener("click", showServerStatsPage);
+serverStatsNavButton.addEventListener("click", () => navigateTo("/admin/stats"));
 
 async function loadServerStats() {
   const { ok, result } = await apiCall("GET", "/api/admin/server-stats");
@@ -1717,6 +2777,7 @@ function hideAllPages() {
   searchResultsSection.hidden = true;
   friendsPage.hidden = true;
   catalogPage.hidden = true;
+  inventoryPage.hidden = true;
   itemPage.hidden = true;
   createPage.hidden = true;
   configurePage.hidden = true;
@@ -1734,7 +2795,18 @@ function hideAllPages() {
   maintenancePage.hidden = true;
   userRolesPage.hidden = true;
   reportsPage.hidden = true;
+  messagesPage.hidden = true;
+  verificationPage.hidden = true;
+  previewPage.hidden = true;
   supportPage.hidden = true;
+  profilePage.hidden = true;
+  cleanupPortrait("profile-avatar-3d");
+  cleanupPortrait("welcome-avatar-3d");
+  premiumPage.hidden = true;
+  downloadPage.hidden = true;
+  transactionsPage.hidden = true;
+  tradesPage.hidden = true;
+  settingsPage.hidden = true;
 }
 
 const announcementsNavButton = document.querySelector("#announcements-nav-button");
@@ -1752,7 +2824,7 @@ function showAnnouncementsPage() {
   void loadAnnouncements();
 }
 
-announcementsNavButton.addEventListener("click", showAnnouncementsPage);
+announcementsNavButton.addEventListener("click", () => navigateTo("/admin/announcements"));
 
 announcementButton.addEventListener("click", async () => {
   const title = announcementTitle.value.trim();
@@ -1806,7 +2878,7 @@ function showGiveItemsPage() {
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-giveItemsNavButton.addEventListener("click", showGiveItemsPage);
+giveItemsNavButton.addEventListener("click", () => navigateTo("/admin/give-items"));
 
 giveItemsButton.addEventListener("click", async () => {
   const username = giveItemsUsername.value.trim();
@@ -1841,7 +2913,7 @@ function showResetPasswordPage() {
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-resetPasswordNavButton.addEventListener("click", showResetPasswordPage);
+resetPasswordNavButton.addEventListener("click", () => navigateTo("/admin/reset-password"));
 
 resetPasswordButton.addEventListener("click", async () => {
   const username = resetPasswordUsername.value.trim();
@@ -1876,7 +2948,7 @@ function showChangeUsernamePage() {
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-changeUsernameNavButton.addEventListener("click", showChangeUsernamePage);
+changeUsernameNavButton.addEventListener("click", () => navigateTo("/admin/change-username"));
 
 changeUsernameButton.addEventListener("click", async () => {
   const currentUsername = changeUsernameCurrent.value.trim();
@@ -1909,7 +2981,7 @@ function showAuditLogPage() {
   void loadAuditLog();
 }
 
-auditLogNavButton.addEventListener("click", showAuditLogPage);
+auditLogNavButton.addEventListener("click", () => navigateTo("/admin/audit-log"));
 
 async function loadAuditLog() {
   const { ok, result } = await apiCall("GET", "/api/admin/audit-log");
@@ -1942,7 +3014,7 @@ function showMassMessagePage() {
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-massMessageNavButton.addEventListener("click", showMassMessagePage);
+massMessageNavButton.addEventListener("click", () => navigateTo("/admin/mass-message"));
 
 massMessageButton.addEventListener("click", async () => {
   const subject = massMessageSubject.value.trim();
@@ -1977,7 +3049,7 @@ function showMaintenancePage() {
   void loadMaintenanceStatus();
 }
 
-maintenanceNavButton.addEventListener("click", showMaintenancePage);
+maintenanceNavButton.addEventListener("click", () => navigateTo("/admin/maintenance"));
 
 async function loadMaintenanceStatus() {
   const { ok, result } = await apiCall("GET", "/api/admin/maintenance-status");
@@ -2016,7 +3088,7 @@ function showUserRolesPage() {
   void loadAdminList();
 }
 
-userRolesNavButton.addEventListener("click", showUserRolesPage);
+userRolesNavButton.addEventListener("click", () => navigateTo("/admin/user-roles"));
 
 promoteAdminButton.addEventListener("click", async () => {
   const username = userRolesUsername.value.trim();
@@ -2085,7 +3157,7 @@ function showReportsPage() {
   void loadReports();
 }
 
-reportsNavButton.addEventListener("click", showReportsPage);
+reportsNavButton.addEventListener("click", () => navigateTo("/admin/reports"));
 
 async function loadReports() {
   const { ok, result } = await apiCall("GET", "/api/admin/reports");
@@ -2136,6 +3208,464 @@ reportButton.addEventListener("click", async () => {
   reportSubject.value = "";
   reportMessage.value = "";
 });
+
+const profilePage = document.querySelector("#profile-page");
+const profileNavButton = document.querySelector("#profile-nav-button");
+const profileTabs = Array.from(document.querySelectorAll(".profile-nav-tab"));
+const profilePanes = {
+  about: document.querySelector('[data-profile-pane="about"]'),
+  creations: document.querySelector('[data-profile-pane="creations"]')
+};
+
+function showProfilePage(userId) {
+  hideAllPages();
+  closeProfileMoreMenu();
+  closeProfileStatusEditor();
+  profilePage.hidden = false;
+  homeScreen.scrollTo({ top: 0, behavior: "smooth" });
+  void loadProfile(userId || (currentUser ? currentUser.id : null));
+}
+
+profileNavButton.addEventListener("click", () => navigateTo("/profile"));
+
+const profileMoreButton = document.querySelector("#profile-more-btn");
+const profileMoreMenu = document.querySelector("#profile-more-menu");
+const profileMoreItems = Array.from(document.querySelectorAll(".profile-more-item"));
+
+function closeProfileMoreMenu() {
+  profileMoreMenu.hidden = true;
+  profileMoreButton.setAttribute("aria-expanded", "false");
+}
+
+function setProfileMoreMenu(ownProfile) {
+  profileIsOwn = ownProfile;
+  profileMoreItems.forEach((item) => {
+    const action = item.dataset.profileMore;
+    item.hidden = ownProfile
+      ? action === "follow" || action === "trade-items"
+      : action === "update-status";
+  });
+  closeProfileMoreMenu();
+}
+
+profileMoreButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const opening = profileMoreMenu.hidden;
+  profileMoreMenu.hidden = !opening;
+  profileMoreButton.setAttribute("aria-expanded", String(opening));
+});
+
+profileMoreMenu.addEventListener("click", (event) => {
+  const item = event.target.closest(".profile-more-item");
+  closeProfileMoreMenu();
+  if (item && item.dataset.profileMore === "update-status" && profileIsOwn) {
+    openProfileStatusEditor();
+  }
+});
+
+document.addEventListener("click", (event) => {
+  if (!profileMoreMenu.hidden && !event.target.closest(".profile-more-wrap")) closeProfileMoreMenu();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeProfileMoreMenu();
+});
+
+const profileTagline = document.querySelector("[data-profile-status]");
+const profileStatusEdit = document.querySelector("#profile-status-edit");
+const profileStatusInput = document.querySelector("#profile-status-input");
+const profileStatusSave = document.querySelector("#profile-status-save");
+const profileStatusCancel = document.querySelector("#profile-status-cancel");
+const profileStatusError = document.querySelector("#profile-status-error");
+let profileStatusValue = "";
+let profileIsOwn = false;
+
+function openProfileStatusEditor() {
+  profileStatusInput.value = profileStatusValue;
+  profileStatusError.hidden = true;
+  profileTagline.hidden = true;
+  profileStatusEdit.hidden = false;
+  profileStatusInput.focus();
+  profileStatusInput.select();
+}
+
+function closeProfileStatusEditor() {
+  profileStatusEdit.hidden = true;
+  profileTagline.hidden = false;
+}
+
+async function saveProfileStatus() {
+  profileStatusSave.disabled = true;
+  const { ok, result } = await apiCall("PUT", "/api/me", { status: profileStatusInput.value.trim() });
+  profileStatusSave.disabled = false;
+  if (!ok) {
+    profileStatusError.textContent = result.error || "Could not update your status.";
+    profileStatusError.hidden = false;
+    return;
+  }
+  profileStatusValue = profileStatusInput.value.trim();
+  profileTagline.textContent = profileStatusValue ? `"${profileStatusValue}"` : '"Welcome to my profile!"';
+  if (currentUser) currentUser.status = profileStatusValue;
+  closeProfileStatusEditor();
+}
+
+profileStatusSave.addEventListener("click", () => void saveProfileStatus());
+profileStatusCancel.addEventListener("click", closeProfileStatusEditor);
+profileStatusInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") void saveProfileStatus();
+  if (event.key === "Escape") closeProfileStatusEditor();
+});
+
+profileTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    profileTabs.forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    const target = tab.dataset.profileTab;
+    Object.entries(profilePanes).forEach(([key, pane]) => {
+      if (pane) pane.hidden = key !== target;
+    });
+  });
+});
+
+async function loadProfile(userId) {
+  if (!userId) return;
+  const { ok, result } = await apiCall("GET", `/api/users/${userId}`);
+  if (!ok) return;
+
+  const { user, friends, followers, following, friendsList } = result;
+
+  const displayNameEl = document.querySelector("[data-profile-display-name]");
+  const handleEl = document.querySelector("[data-profile-handle]");
+  const statusEl = document.querySelector("[data-profile-status]");
+  const aboutTextEl = document.querySelector("[data-profile-about-text]");
+  const friendsEl = document.querySelector("[data-profile-friends]");
+  const friendsCountEl = document.querySelector("[data-profile-friends-count]");
+  const followersEl = document.querySelector("[data-profile-followers]");
+  const followingEl = document.querySelector("[data-profile-following]");
+  const rapEl = document.querySelector("[data-profile-rap]");
+  const friendsGridEl = document.querySelector("[data-profile-friends-grid]");
+
+  if (displayNameEl) displayNameEl.textContent = user.displayName || user.username || "User";
+  if (handleEl) handleEl.textContent = `@${user.username || "username"}`;
+  if (statusEl) statusEl.textContent = user.status ? `"${user.status}"` : '"Welcome to my profile!"';
+  profileStatusValue = user.status || "";
+  if (aboutTextEl) aboutTextEl.textContent = user.blurb || "Welcome to my profile!";
+  const verifiedBadge = document.querySelector(".profile-verified-badge");
+  if (verifiedBadge) {
+    verifiedBadge.style.display = (user.verified || user.isAdmin) ? "" : "none";
+  }
+  setProfileMoreMenu(Boolean(currentUser) && String(user.id) === String(currentUser.id));
+  if (friendsEl) friendsEl.textContent = friends;
+  if (friendsCountEl) friendsCountEl.textContent = friends;
+  if (followersEl) followersEl.textContent = followers;
+  if (followingEl) followingEl.textContent = following;
+  if (rapEl) rapEl.textContent = "0";
+
+  if (friendsGridEl) {
+    friendsGridEl.innerHTML = "";
+    if (friendsList && friendsList.length > 0) {
+      friendsList.forEach((friend) => {
+        const card = document.createElement("div");
+        card.className = "friend-card";
+        const avatarDiv = document.createElement("div");
+        avatarDiv.className = "friend-avatar";
+        const img = document.createElement("img");
+        img.src = "noFilter.png";
+        img.alt = friend.username;
+        avatarDiv.appendChild(img);
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "friend-name";
+        nameSpan.textContent = friend.username;
+        card.appendChild(avatarDiv);
+        card.appendChild(nameSpan);
+        friendsGridEl.appendChild(card);
+      });
+    }
+  }
+
+  profileTabs.forEach((t) => t.classList.remove("active"));
+  profileTabs[0].classList.add("active");
+  Object.entries(profilePanes).forEach(([key, pane]) => {
+    if (pane) pane.hidden = key !== "about";
+  });
+
+  await initProfile3DViewer(userId);
+}
+
+const portraitRenderers = new Map();
+
+function initProfilePortrait(containerEl, equipped) {
+  if (!containerEl || typeof THREE === "undefined") return;
+
+  const key = containerEl.id || "portrait";
+  const prev = portraitRenderers.get(key);
+  if (prev) {
+    cancelAnimationFrame(prev.animationId);
+    if (prev.renderer.domElement.parentNode) {
+      prev.renderer.domElement.parentNode.removeChild(prev.renderer.domElement);
+    }
+    prev.renderer.dispose();
+  }
+
+  const width = containerEl.clientWidth;
+  const height = containerEl.clientHeight;
+
+  const pScene = new THREE.Scene();
+  const pCamera = new THREE.PerspectiveCamera(35, width / height, 0.1, 1000);
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(width, height);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  containerEl.appendChild(renderer.domElement);
+
+  pScene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  dirLight.position.set(3, 6, 5);
+  pScene.add(dirLight);
+
+  const pCharacter = new THREE.Group();
+  const pEquippedGroup = new THREE.Group();
+  pEquippedGroup.name = "equipped-items";
+  pScene.add(pEquippedGroup);
+  pScene.add(pCharacter);
+
+  const GLTFLoader = THREE.GLTFLoader || window.GLTFLoader;
+  if (!GLTFLoader) return;
+
+  const loader = new GLTFLoader();
+  loader.load("/r6.glb", (gltf) => {
+    const model = gltf.scene;
+    model.scale.set(1.5, 1.5, 1.5);
+    model.position.y = -1;
+    pCharacter.add(model);
+
+    model.updateMatrixWorld(true);
+    let headY = 1.25;
+    const head = findAvatarHead(pCharacter);
+    if (head) {
+      headY = head.bounds.getCenter(new THREE.Vector3()).y;
+    }
+
+    pCamera.position.set(0, headY, 6.5);
+    pCamera.lookAt(0, headY, 0);
+
+    if (equipped && equipped.length > 0) {
+      equipped.forEach((item) => {
+        addEquippedModel(item, pScene, pCharacter);
+      });
+    }
+
+    let animId;
+    function animate() {
+      animId = requestAnimationFrame(animate);
+      renderer.render(pScene, pCamera);
+    }
+    animate();
+    portraitRenderers.set(key, { renderer, animationId: animId });
+  }, undefined, (error) => {
+    console.error("Portrait GLB load failed:", error);
+  });
+}
+
+function cleanupPortrait(key) {
+  const prev = portraitRenderers.get(key);
+  if (prev) {
+    cancelAnimationFrame(prev.animationId);
+    if (prev.renderer.domElement.parentNode) {
+      prev.renderer.domElement.parentNode.removeChild(prev.renderer.domElement);
+    }
+    prev.renderer.dispose();
+    portraitRenderers.delete(key);
+  }
+}
+
+async function initWelcomePortrait() {
+  const container = document.querySelector("#welcome-avatar-3d");
+  if (!container || !currentUser) return;
+
+  let equipped = [];
+  try {
+    const response = await fetch(`${apiBase}/api/users/${currentUser.id}/equipped`, { credentials: "same-origin" });
+    if (response.ok) {
+      const data = await response.json();
+      const raw = data.equipped || [];
+      raw.forEach((item) => {
+        equipped.push({
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          assetType: item.asset_type,
+          modelFormat: item.model_format,
+          modelUrl: item.model_url,
+          thumbnailUrl: item.thumbnail_url,
+          yOffset: item.y_offset || 0,
+          xOffset: item.x_offset || 0,
+          scaleOffset: item.scale_offset || 1,
+          rotationOffset: item.rotation_offset || 0
+        });
+      });
+    }
+  } catch {
+    // silently fail
+  }
+
+  initProfilePortrait(container, equipped);
+}
+
+async function initSmallAvatars() {
+  if (!currentUser) return;
+
+  let equipped = [];
+  try {
+    const response = await fetch(`${apiBase}/api/users/${currentUser.id}/equipped`, { credentials: "same-origin" });
+    if (response.ok) {
+      const data = await response.json();
+      const raw = data.equipped || [];
+      raw.forEach((item) => {
+        equipped.push({
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          assetType: item.asset_type,
+          modelFormat: item.model_format,
+          modelUrl: item.model_url,
+          thumbnailUrl: item.thumbnail_url,
+          yOffset: item.y_offset || 0,
+          xOffset: item.x_offset || 0,
+          scaleOffset: item.scale_offset || 1,
+          rotationOffset: item.rotation_offset || 0
+        });
+      });
+    }
+  } catch {
+    // silently fail
+  }
+
+  const headerContainer = document.querySelector("#header-avatar-3d");
+  if (headerContainer) initProfilePortrait(headerContainer, equipped);
+
+  const sidebarContainer = document.querySelector("#sidebar-avatar-3d");
+  if (sidebarContainer) initProfilePortrait(sidebarContainer, equipped);
+}
+
+async function initPlayerAvatar(userId) {
+  const container = document.querySelector(`#player-avatar-${userId}`);
+  if (!container) return;
+
+  let equipped = [];
+  try {
+    const response = await fetch(`${apiBase}/api/users/${userId}/equipped`, { credentials: "same-origin" });
+    if (response.ok) {
+      const data = await response.json();
+      const raw = data.equipped || [];
+      raw.forEach((item) => {
+        equipped.push({
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          assetType: item.asset_type,
+          modelFormat: item.model_format,
+          modelUrl: item.model_url,
+          thumbnailUrl: item.thumbnail_url,
+          yOffset: item.y_offset || 0,
+          xOffset: item.x_offset || 0,
+          scaleOffset: item.scale_offset || 1,
+          rotationOffset: item.rotation_offset || 0
+        });
+      });
+    }
+  } catch {
+    // silently fail
+  }
+
+  initProfilePortrait(container, equipped);
+}
+
+async function initProfile3DViewer(userId) {
+  const container = document.querySelector("#profile-3d-container");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  const savedAvatarScene = avatarScene;
+  const savedAvatarCharacter = avatarCharacter;
+  const savedAvatarRenderer = avatarRenderer;
+  const savedAvatarCamera = avatarCamera;
+  const savedAvatarControls = avatarControls;
+  const savedAvatarAnimationId = avatarAnimationId;
+
+  avatarScene = null;
+  avatarCharacter = null;
+  avatarRenderer = null;
+  avatarCamera = null;
+  avatarControls = null;
+  avatarAnimationId = null;
+
+  let equipped = [];
+
+  if (userId) {
+    try {
+      const response = await fetch(`${apiBase}/api/users/${userId}/equipped`, { credentials: "same-origin" });
+      if (response.ok) {
+        const data = await response.json();
+        equipped = data.equipped || [];
+
+        const wearingGrid = document.querySelector("[data-profile-wearing-grid]");
+        if (wearingGrid) {
+          wearingGrid.innerHTML = "";
+          equipped.forEach((item) => {
+            const thumb = document.createElement("div");
+            thumb.className = "wearing-thumb";
+            if (item.thumbnail_url) {
+              const img = document.createElement("img");
+              img.src = item.thumbnail_url;
+              img.alt = item.name;
+              thumb.appendChild(img);
+            } else {
+              thumb.textContent = item.name || "Item";
+            }
+            wearingGrid.appendChild(thumb);
+          });
+        }
+
+        equippedItems.clear();
+        equipped.forEach((item) => {
+          equippedItems.set(item.id, {
+            id: item.id,
+            name: item.name,
+            assetType: item.asset_type,
+            category: item.category,
+            modelUrl: item.model_url,
+            modelFormat: item.model_format,
+            thumbnailUrl: item.thumbnail_url,
+            yOffset: item.y_offset || 0,
+            xOffset: item.x_offset || 0,
+            scaleOffset: item.scale_offset || 1,
+            rotationOffset: item.rotation_offset || 0
+          });
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load profile equipped items:", error);
+    }
+  }
+
+  const portraitContainer = document.querySelector("#profile-avatar-3d");
+  if (portraitContainer) {
+    initProfilePortrait(portraitContainer, Array.from(equippedItems.values()));
+  }
+
+  initAvatar3D("/r6.glb", "#profile-3d-container", () => {
+    const equippedGroup = avatarScene ? avatarScene.getObjectByName("equipped-items") : null;
+    if (equippedGroup && equipped.length > 0) {
+      for (const item of equippedItems.values()) {
+        addEquippedModel(item);
+      }
+    }
+
+    // Don't restore globals - keep profile viewer active
+    // The avatar page will reinitialize its own viewer when needed
+  });
+}
 
 async function loadAdminCodes() {
   const { ok, result } = await apiCall("GET", "/api/admin/imports");
@@ -2400,7 +3930,7 @@ adminUpdateButton.addEventListener("click", async () => {
   adminUpdateAssetType.value = "";
   adminUpdateModel.value = "";
   void loadAdminCodes();
-  openItemPage(result.item.id);
+  navigateTo(`/item/${result.item.id}`);
 });
 
 async function removeItemByCode(refund) {
@@ -2485,7 +4015,7 @@ async function loadRobuxHistory() {
   });
 }
 
-itemBackButton.addEventListener("click", showCatalogPage);
+itemBackButton.addEventListener("click", () => navigateTo("/catalog"));
 
 const topCreateButton = document.querySelector("#top-create-button");
 const createPage = document.querySelector("#create-page");
@@ -2662,7 +4192,7 @@ function showCreatePage() {
   void loadMyCreations();
 }
 
-topCreateButton.addEventListener("click", showCreatePage);
+topCreateButton.addEventListener("click", () => navigateTo("/create"));
 
 const configurePage = document.querySelector("#configure-page");
 const configureTabs = Array.from(document.querySelectorAll("#configure-tabs .configure-tab"));
@@ -2828,7 +4358,7 @@ configureSaveButton.addEventListener("click", async () => {
   showCreatePage();
 });
 
-configureCancelButton.addEventListener("click", showCreatePage);
+configureCancelButton.addEventListener("click", () => navigateTo("/create"));
 
 configureUploadButton.addEventListener("click", async () => {
   if (!configuring) return;
@@ -2912,7 +4442,7 @@ configureAccessSave.addEventListener("click", async () => {
   showCreatePage();
 });
 
-configureAccessCancel.addEventListener("click", showCreatePage);
+configureAccessCancel.addEventListener("click", () => navigateTo("/create"));
 
 function renderRobuxPrice(container, price) {
   const icon = document.createElement("img");
@@ -3182,7 +4712,8 @@ function handleDiscordRedirectParam() {
   params.delete("discord");
   const query = params.toString();
   window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
-  void openSettings().then(() => {
+  history.replaceState({}, "", "/settings");
+  void showSettingsPage().then(() => {
     if (discordParam === "linked") {
       setStatus(accountStatus, "Discord account connected.");
     } else if (discordParam === "error") {
@@ -3314,13 +4845,14 @@ async function detectRenderFileFormat(file) {
   return null;
 }
 
-function findAvatarHead() {
-  if (!avatarCharacter) return null;
+function findAvatarHead(characterRef) {
+  const character = characterRef || avatarCharacter;
+  if (!character) return null;
   let headMesh = null;
   let headBounds = null;
   let highestHeadCenter = -Infinity;
-  avatarCharacter.updateMatrixWorld(true);
-  avatarCharacter.traverse((candidate) => {
+  character.updateMatrixWorld(true);
+  character.traverse((candidate) => {
     if (!candidate.isMesh) return;
     const bounds = new THREE.Box3().setFromObject(candidate);
     const size = bounds.getSize(new THREE.Vector3());
@@ -3351,8 +4883,8 @@ function disposeEquippedObject(object) {
   materials.forEach((material) => material.dispose());
 }
 
-function initAvatar3D(modelUrl = null) {
-  const container = document.querySelector(".avatar-preview-box");
+function initAvatar3D(modelUrl = null, containerSelector = ".avatar-preview-box", onComplete = null) {
+  const container = document.querySelector(containerSelector);
   if (!container || typeof THREE === "undefined") return;
 
   const placeholder = container.querySelector(".avatar-preview-placeholder");
@@ -3374,12 +4906,10 @@ function initAvatar3D(modelUrl = null) {
   const height = container.clientHeight;
 
   avatarScene = new THREE.Scene();
-  avatarScene.background = new THREE.Color(0xc4a87a);
-
   avatarCamera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
-  avatarCamera.position.set(0, 0, 6);
+  avatarCamera.position.set(0, 0, 10);
 
-  avatarRenderer = new THREE.WebGLRenderer({ antialias: true });
+  avatarRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   avatarRenderer.setSize(width, height);
   avatarRenderer.setPixelRatio(window.devicePixelRatio);
   container.appendChild(avatarRenderer.domElement);
@@ -3389,8 +4919,10 @@ function initAvatar3D(modelUrl = null) {
     avatarControls = new OrbitControls(avatarCamera, avatarRenderer.domElement);
     avatarControls.enableDamping = true;
     avatarControls.dampingFactor = 0.08;
-    avatarControls.minDistance = 3;
-    avatarControls.maxDistance = 15;
+    avatarControls.autoRotate = true;
+    avatarControls.autoRotateSpeed = 1.5;
+    avatarControls.minDistance = 4;
+    avatarControls.maxDistance = 20;
     avatarControls.target.set(0, 0.5, 0);
     avatarControls.update();
   }
@@ -3433,6 +4965,7 @@ function initAvatar3D(modelUrl = null) {
           }
         }
         console.log("GLB loaded successfully:", modelUrl);
+        if (onComplete) onComplete();
       },
       (progress) => {
         console.log("Loading GLB:", progress.loaded, progress.total);
@@ -3527,7 +5060,7 @@ function showAvatarPage() {
   renderAvatarSubtabs("recent");
   void loadOwnedItems();
   void loadEquippedItems();
-  setTimeout(() => initAvatar3D("r6.glb"), 100);
+  setTimeout(() => initAvatar3D("/r6.glb"), 100);
 }
 
 async function loadOwnedItems() {
@@ -3597,7 +5130,11 @@ async function loadEquippedItems() {
         assetType: item.asset_type,
         modelFormat: item.model_format,
         thumbnailUrl: item.thumbnail_url,
-        modelUrl: item.model_url
+        modelUrl: item.model_url,
+        yOffset: item.y_offset || 0,
+        xOffset: item.x_offset || 0,
+        scaleOffset: item.scale_offset || 1,
+        rotationOffset: item.rotation_offset || 0
       };
       if (isAvatarFace(itemData)) {
         if (hasEquippedFace) {
@@ -3690,9 +5227,11 @@ function getItemColor(name) {
   return colors[Math.abs(hash) % colors.length];
 }
 
-function addEquippedModel(item) {
-  if (!avatarCharacter) return;
-  const equippedGroup = avatarScene.getObjectByName("equipped-items");
+function addEquippedModel(item, sceneRef, characterRef) {
+  const character = characterRef || avatarCharacter;
+  const scene = sceneRef || avatarScene;
+  if (!character) return;
+  const equippedGroup = scene.getObjectByName("equipped-items");
   if (!equippedGroup) return;
 
   let assetType = item.assetType;
@@ -3731,7 +5270,7 @@ function addEquippedModel(item) {
         // Hats and hair accessories share the same placement: stud-accurate scale, rotated to face
         // forward, sitting on the head with a small forward offset.
         const isHat = Number(assetType) === 8 || Number(assetType) === 41 || Number(assetType) === 48 || Number(assetType) === 49;
-        const avatarHead = isHat ? findAvatarHead() : null;
+        const avatarHead = isHat ? findAvatarHead(character) : null;
         if (avatarHead) {
           model.updateMatrixWorld(true);
           const sourceBounds = new THREE.Box3().setFromObject(model);
@@ -3740,7 +5279,7 @@ function addEquippedModel(item) {
             // Roblox legacy meshes are measured in studs and a head is two studs wide, so a hat
             // already carries its real proportions; hair is authored loose and gets stretched to fit.
             const hatScale = Number(assetType) === 49
-              ? avatarHead.size.x / 2 * 1.7
+              ? avatarHead.size.x / 2 * 2.6
               : avatarHead.size.x / 2 * 0.85;
             model.scale.multiplyScalar(isHat
               ? hatScale
@@ -3751,22 +5290,38 @@ function addEquippedModel(item) {
             const headCenter = avatarHead.bounds.getCenter(new THREE.Vector3());
             model.position.x += headCenter.x - modelCenter.x;
             if (Number(assetType) === 48) {
-              // Hat with ears — push down significantly to sit on sides of head.
-              model.position.y += headCenter.y - modelCenter.y - 1.5;
-              console.log("TYPE 48 GLB placement debug:", {
-                headCenter: { x: headCenter.x, y: headCenter.y, z: headCenter.z },
-                modelCenter: { x: modelCenter.x, y: modelCenter.y, z: modelCenter.z },
-                modelBoundsMin: { x: modelBounds.min.x, y: modelBounds.min.y, z: modelBounds.min.z },
-                modelBoundsMax: { x: modelBounds.max.x, y: modelBounds.max.y, z: modelBounds.max.z },
-                hatScale,
-                finalPosition: { x: model.position.x, y: model.position.y, z: model.position.z }
-              });
+              // Hat with ears — center on head vertically so all models sit at ear level regardless of shape.
+              model.position.y += headCenter.y - modelCenter.y;
+            } else if (Number(assetType) === 49) {
+              // Fedora — sit higher on the head
+              model.position.y += avatarHead.bounds.max.y - modelBounds.min.y + 0.1;
             } else {
               model.position.y += avatarHead.bounds.max.y - modelBounds.min.y - 0.35;
             }
             model.position.z += headCenter.z - modelCenter.z + 0.12;
             model.rotation.y = Math.PI;
           }
+        }
+        if (item.id === 31) {
+          model.position.y -= 0.8;
+        } else if (item.id === 33) {
+          model.position.z -= 0.3;
+        } else if (item.id === 28) {
+          model.scale.multiplyScalar(0.92);
+        }
+        if (Number(item.yOffset ?? item.y_offset)) {
+          model.position.y += Number(item.yOffset ?? item.y_offset);
+        }
+        if (Number(item.xOffset ?? item.x_offset)) {
+          model.position.x += Number(item.xOffset ?? item.x_offset);
+        }
+        const savedScale = Number(item.scaleOffset ?? item.scale_offset);
+        if (savedScale && savedScale !== 1) {
+          model.scale.multiplyScalar(savedScale);
+        }
+        const savedRotation = Number(item.rotationOffset ?? item.rotation_offset);
+        if (savedRotation) {
+          model.rotation.y += savedRotation * Math.PI / 180;
         }
         mesh.add(model);
         console.log("3D item model loaded:", item.name, modelUrl);
@@ -3840,7 +5395,7 @@ function addEquippedModel(item) {
   
   // Roblox AvatarAssetType IDs for precise placement (in world coordinates)
   if (assetType === 18) {
-    const avatarHead = findAvatarHead();
+    const avatarHead = findAvatarHead(character);
     const headMesh = avatarHead?.mesh;
     const headBounds = avatarHead?.bounds;
     const headSize = avatarHead?.size;
@@ -3869,22 +5424,20 @@ function addEquippedModel(item) {
     // Hat - place on top of the detected head.
     const geo = new THREE.BoxGeometry(0.8 * scale, 0.4 * scale, 0.8 * scale);
     mesh = new THREE.Mesh(geo, material);
-    const avatarHead = findAvatarHead();
+    const avatarHead = findAvatarHead(character);
     mesh.position.set(0, avatarHead ? avatarHead.bounds.max.y + 0.15 : 2.8, 0);
   } else if (assetType === 49) {
     // Fedora - slightly larger than regular hats.
-    const geo = new THREE.BoxGeometry(1.0 * scale, 0.5 * scale, 1.0 * scale);
+    const geo = new THREE.BoxGeometry(1.3 * scale, 0.5 * scale, 1.3 * scale);
     mesh = new THREE.Mesh(geo, material);
-    const avatarHead = findAvatarHead();
+    const avatarHead = findAvatarHead(character);
     mesh.position.set(0, avatarHead ? avatarHead.bounds.max.y + 0.15 : 2.8, 0);
   } else if (assetType === 48) {
-    // Hat with ears - similar to hat but slightly wider to suggest ear shapes.
-    console.log("TYPE 48 PROCEDURAL FALLBACK PATH - no modelUrl!");
+    // Hat with ears - same placement as regular hats, then lowered.
     const geo = new THREE.BoxGeometry(1.0 * scale, 0.5 * scale, 0.8 * scale);
     mesh = new THREE.Mesh(geo, material);
-    const avatarHead = findAvatarHead();
-    mesh.position.set(0, avatarHead ? avatarHead.bounds.max.y + 0.15 : 2.8, 0);
-    console.log("TYPE 48 procedural position:", { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z, avatarHeadFound: !!avatarHead });
+    const avatarHead = findAvatarHead(character);
+    mesh.position.set(0, (avatarHead ? avatarHead.bounds.max.y + 0.15 : 2.8) - 1.2, 0);
   } else if (assetType === 42) {
     // FaceAccessory - front of face (glasses, mask)
     const geo = new THREE.PlaneGeometry(0.7 * scale, 0.35 * scale);
@@ -3929,7 +5482,7 @@ function addEquippedModel(item) {
   } else if (category === "accessories" || category === "gear") {
     const geo = new THREE.SphereGeometry(0.35 * scale, 16, 16);
     mesh = new THREE.Mesh(geo, material);
-    mesh.position.set(0, 1.25 + 0.5 * scale, 0);
+    mesh.position.set(0, item.id === 31 ? 0.85 : item.id === 33 ? 0.85 : 1.25 + 0.5 * scale, 0);
   } else if (category === "clothing") {
     const geo = new THREE.BoxGeometry(1.1 * scale, 1.3 * scale, 0.7 * scale);
     mesh = new THREE.Mesh(geo, material);
@@ -3959,4 +5512,4 @@ function removeEquippedModel(itemId) {
   }
 }
 
-avatarNavButton.addEventListener("click", showAvatarPage);
+avatarNavButton.addEventListener("click", () => navigateTo("/avatar"));
