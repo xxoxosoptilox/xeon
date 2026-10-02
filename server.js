@@ -59,7 +59,7 @@ app.use((request, response, next) => {
   if (request.path.startsWith("/api/")) {
     return next();
   }
-  if (request.method !== "GET") {
+  if (request.method !== "GET" && request.method !== "HEAD") {
     return next();
   }
   const indexPath = path.join(__dirname, "index.html");
