@@ -110,7 +110,7 @@ function handleRoute() {
   const path = window.location.pathname;
 
   // Public routes that don't require auth
-  const publicRoutes = ["/", "/login", "/signup"];
+  const publicRoutes = ["/", "/login", "/signup", "/avatar"];
   const isPublicRoute = publicRoutes.includes(path) || path.startsWith("/search");
 
   // If not logged in and trying to access protected route, redirect to login
@@ -5051,9 +5051,6 @@ function initAvatar3D(modelUrl = null, containerSelector = ".avatar-preview-box"
 }
 
 function showAvatarPage() {
-  if ((currentUser?.username || "").toLowerCase() !== "marsargo") {
-    return;
-  }
   hideAllPages();
   avatarPage.hidden = false;
   homeScreen.scrollTo({ top: 0, behavior: "smooth" });
